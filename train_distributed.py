@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import math
 import os
 import pathlib
@@ -111,6 +112,63 @@ def choose_data(
     return train_pairs, val_pairs
 
 
+def load_json_config(config_path):
+    with open(config_path, "r", encoding="utf-8") as file:
+        config = json.load(file)
+    if not isinstance(config, dict):
+        raise ValueError(
+            f"Config file must contain a JSON object (key/value pairs): {config_path}"
+        )
+    return config
+
+
+def apply_config_defaults(parser, config, config_path):
+    valid_keys = {action.dest for action in parser._actions}
+    unknown = sorted(set(config.keys()) - valid_keys)
+    if unknown:
+        raise ValueError(
+            f"Unknown keys in config file {config_path}: {', '.join(unknown)}"
+        )
+    parser.set_defaults(**config)
+
+
+def resolve_trainer_hardware(args):
+    trainer_hw = {}
+
+    if args.accelerator is not None:
+        trainer_hw["accelerator"] = args.accelerator
+    if args.devices is not None:
+        if args.devices < 1:
+            raise ValueError("--devices must be >= 1.")
+        trainer_hw["devices"] = args.devices
+    if args.num_nodes is not None:
+        if args.num_nodes < 1:
+            raise ValueError("--num-nodes must be >= 1.")
+        trainer_hw["num_nodes"] = args.num_nodes
+    if args.strategy is not None:
+        trainer_hw["strategy"] = args.strategy
+
+    using_slurm_env = (
+        (not args.ignore_slurm_env) and os.environ.get("SLURM_NODELIST") is not None
+    )
+    if using_slurm_env:
+        trainer_hw.setdefault("accelerator", "gpu")
+        trainer_hw.setdefault("devices", int(os.environ["SLURM_GPUS_ON_NODE"]))
+        trainer_hw.setdefault("num_nodes", int(os.environ["SLURM_NNODES"]))
+        if trainer_hw.get("devices", 1) > 1:
+            trainer_hw.setdefault("strategy", "ddp")
+
+    if "accelerator" not in trainer_hw:
+        trainer_hw["accelerator"] = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if trainer_hw.get("devices", 1) > 1 and "strategy" not in trainer_hw:
+        trainer_hw["strategy"] = "ddp"
+
+    world_size = trainer_hw.get("devices", 1) * trainer_hw.get("num_nodes", 1)
+
+    return trainer_hw, world_size, using_slurm_env
+
+
 class LightningAxialTransformer(lightning.LightningModule):
     """Lighnint Object for Phyloformer training"""
 
@@ -205,19 +263,30 @@ class PhyloDataModule(lightning.LightningDataModule):
 
 
 if __name__ == "__main__":
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to a JSON config file. CLI flags override config values.",
+    )
+    pre_args, _ = config_parser.parse_known_args()
+
     parser = argparse.ArgumentParser(
-        "train PF instance", formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        "train PF instance",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        parents=[config_parser],
     )
 
     # DATA
     data_grp = parser.add_argument_group("data", description="Data IO parameters")
     data_grp.add_argument(
-        "--train-trees", "-t", required=True, help="Directory with training trees"
+        "--train-trees", "-t", required=False, help="Directory with training trees"
     )
     data_grp.add_argument(
         "--train-alignments",
         "-a",
-        required=True,
+        required=False,
         help="Directory with training alignments",
     )
     data_grp.add_argument(
@@ -344,6 +413,43 @@ if __name__ == "__main__":
         help="Name to give to the run on WandB",
     )
 
+    # COMPUTE
+    compute_grp = parser.add_argument_group(
+        "COMPUTE",
+        description=(
+            "Hardware/distribution settings. Can be provided explicitly without SLURM."
+        ),
+    )
+    compute_grp.add_argument(
+        "--accelerator",
+        default=None,
+        choices=["cpu", "gpu", "cuda"],
+        help="Lightning accelerator to use. Defaults to CUDA if available.",
+    )
+    compute_grp.add_argument(
+        "--devices",
+        type=int,
+        default=None,
+        help="Number of devices per node to use (e.g. 6 for 6 GPUs).",
+    )
+    compute_grp.add_argument(
+        "--num-nodes",
+        type=int,
+        default=None,
+        help="Number of nodes for distributed training.",
+    )
+    compute_grp.add_argument(
+        "--strategy",
+        type=str,
+        default=None,
+        help="Lightning strategy (e.g. ddp).",
+    )
+    compute_grp.add_argument(
+        "--ignore-slurm-env",
+        action="store_true",
+        help="Ignore SLURM_* environment variables even if they are set.",
+    )
+
     # MISC
     utils_grp = parser.add_argument_group(
         "UTILS", description="Utilities that are run instead of training"
@@ -358,7 +464,16 @@ if __name__ == "__main__":
         "--profile", action="store_true", help="Run profiler for a few steps and exit"
     )
 
+    if pre_args.config is not None:
+        config = load_json_config(pre_args.config)
+        apply_config_defaults(parser, config, pre_args.config)
+
     args = parser.parse_args()
+    if args.train_trees is None or args.train_alignments is None:
+        raise ValueError(
+            "You must provide both --train-trees and --train-alignments "
+            "(either through CLI flags or --config)."
+        )
 
     # Initialize logger
     wandb_logger = log.WandbLogger(
@@ -408,21 +523,15 @@ if __name__ == "__main__":
         args.val_regex,
     )
 
-    # Check if we are on SLURM and grab env variables
-    slurm_args = dict()
-    if os.environ.get("SLURM_NODELIST") is not None:
-        # Add SLURM arguments for distributed training
-        slurm_args = {
-            "accelerator": "gpu",
-            "devices": int(os.environ["SLURM_GPUS_ON_NODE"]),
-            "num_nodes": int(os.environ["SLURM_NNODES"]),
-            "strategy": "ddp",
-        }
+    trainer_hardware_args, world_size, using_slurm_env = resolve_trainer_hardware(args)
+    if pre_args.config is not None:
+        print(f"Loaded config: {pre_args.config}")
+    if using_slurm_env:
+        print("Using SLURM environment variables for distributed setup.")
 
     datamodule = PhyloDataModule(train_pairs, val_pairs, args.batch_size)
-    n_gpus = slurm_args.get("devices", 1)
     total_steps = (
-        math.ceil(len(train_pairs) / (args.batch_size * n_gpus)) * args.nb_epochs
+        math.ceil(len(train_pairs) / (args.batch_size * world_size)) * args.nb_epochs
     )
 
     criterion = torch.nn.L1Loss()
@@ -511,17 +620,13 @@ if __name__ == "__main__":
             )
         )
 
-    # Cannot use lightning's auto accelerator selection since we do not
-    # want to use MPS devices
-    accelerator = "cuda" if torch.cuda.is_available() else "cpu"
     trainer_args = {
         "max_epochs": args.nb_epochs,
         "log_every_n_steps": LOGGING_STEPS,
         "val_check_interval": VAL_CHECK_STEPS,
         "logger": wandb_logger,
         "callbacks": callbacks,
-        "accelerator": accelerator,
-        **slurm_args,
+        **trainer_hardware_args,
     }
 
     # Run profiler for 30 steps

@@ -250,7 +250,7 @@ if __name__ == "__main__":
 
     alphas = load_list(ALPHAS_PATH)
 
-    os.makedirs(args.outdir)
+    os.makedirs(args.outdir, exist_ok=True)
 
     # Get custom model params if defined
     custom_model_def = ""
