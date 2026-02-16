@@ -382,6 +382,15 @@ if __name__ == "__main__":
         type=float,
         help="Max value of loss over which the training stops",
     )
+    train_grp.add_argument(
+        "--precision",
+        default="32-true",
+        choices=["32-true", "16-mixed", "bf16-mixed"],
+        help=(
+            "Trainer precision mode. Use bf16-mixed on A100 for lower memory "
+            "and higher throughput."
+        ),
+    )
 
     # LOGGING
     log_grp = parser.add_argument_group("LOGGING")
@@ -626,6 +635,7 @@ if __name__ == "__main__":
         "val_check_interval": VAL_CHECK_STEPS,
         "logger": wandb_logger,
         "callbacks": callbacks,
+        "precision": args.precision,
         **trainer_hardware_args,
     }
 

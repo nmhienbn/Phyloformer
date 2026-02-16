@@ -21,5 +21,6 @@
   "devices": 4,
   "num_nodes": 1,
   "strategy": "ddp",
-  "ignore_slurm_env": true
+  "ignore_slurm_env": true,
+  "precision": "bf16-mixed"
 }
