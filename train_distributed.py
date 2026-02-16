@@ -238,27 +238,46 @@ class LightningAxialTransformer(lightning.LightningModule):
 
 
 class PhyloDataModule(lightning.LightningDataModule):
-    def __init__(self, train_pairs, val_pairs, batch_size):
+    def __init__(
+        self,
+        train_pairs,
+        val_pairs,
+        batch_size,
+        workers_train,
+        workers_val,
+        prefetch_factor,
+    ):
         super().__init__()
         self.train_pairs = train_pairs
         self.val_pairs = val_pairs
         self.batch_size = batch_size
+        self.workers_train = workers_train
+        self.workers_val = workers_val
+        self.prefetch_factor = prefetch_factor
+
+    def _loader_kwargs(self, num_workers):
+        kwargs = {
+            "num_workers": num_workers,
+            "pin_memory": True,
+        }
+        if num_workers > 0:
+            kwargs["persistent_workers"] = True
+            kwargs["prefetch_factor"] = self.prefetch_factor
+        return kwargs
 
     def train_dataloader(self):
         return DataLoader(
             dataset=PhyloDataset(self.train_pairs),
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=WORKERS_TRAIN,
-            pin_memory=True,
+            **self._loader_kwargs(self.workers_train),
         )
 
     def val_dataloader(self):
         return DataLoader(
             dataset=PhyloDataset(self.val_pairs),
             batch_size=self.batch_size,
-            num_workers=WORKERS_VAL,
-            pin_memory=True,
+            **self._loader_kwargs(self.workers_val),
         )
 
 
@@ -364,6 +383,33 @@ if __name__ == "__main__":
     )
     train_grp.add_argument(
         "--batch-size", "-s", default=4, type=int, help="Training batch size"
+    )
+    train_grp.add_argument(
+        "--workers-train",
+        default=None,
+        type=int,
+        help=(
+            "Number of dataloader workers for training. "
+            "If not provided, auto-derived from SLURM_CPUS_PER_TASK/cpu_count()."
+        ),
+    )
+    train_grp.add_argument(
+        "--workers-val",
+        default=None,
+        type=int,
+        help=(
+            "Number of dataloader workers for validation. "
+            "If not provided, auto-derived from SLURM_CPUS_PER_TASK/cpu_count()."
+        ),
+    )
+    train_grp.add_argument(
+        "--prefetch-factor",
+        default=2,
+        type=int,
+        help=(
+            "DataLoader prefetch_factor used when num_workers > 0 "
+            "(persistent_workers is enabled automatically)."
+        ),
     )
     train_grp.add_argument(
         "--max-steps", "-M", default=None, type=int, help="Max number of training steps"
@@ -496,14 +542,25 @@ if __name__ == "__main__":
 
     VAL_CHECK_STEPS = args.check_val_every
     LOGGING_STEPS = args.log_every
+    if args.prefetch_factor < 1:
+        raise ValueError("--prefetch-factor must be >= 1.")
 
     N_CPUS = int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
     NUM_WORKERS = N_CPUS // 2
 
     global WORKERS_TRAIN
     global WORKERS_VAL
-    WORKERS_TRAIN = max(NUM_WORKERS, N_CPUS - NUM_WORKERS)
-    WORKERS_VAL = min(NUM_WORKERS, N_CPUS - NUM_WORKERS)
+    default_workers_train = max(NUM_WORKERS, N_CPUS - NUM_WORKERS)
+    default_workers_val = min(NUM_WORKERS, N_CPUS - NUM_WORKERS)
+
+    WORKERS_TRAIN = (
+        args.workers_train
+        if args.workers_train is not None
+        else default_workers_train
+    )
+    WORKERS_VAL = args.workers_val if args.workers_val is not None else default_workers_val
+    if WORKERS_TRAIN < 0 or WORKERS_VAL < 0:
+        raise ValueError("--workers-train and --workers-val must be >= 0.")
 
     print(
         f"Assigning {WORKERS_TRAIN} training, and {WORKERS_VAL} validation data-loading workers"
@@ -538,7 +595,14 @@ if __name__ == "__main__":
     if using_slurm_env:
         print("Using SLURM environment variables for distributed setup.")
 
-    datamodule = PhyloDataModule(train_pairs, val_pairs, args.batch_size)
+    datamodule = PhyloDataModule(
+        train_pairs=train_pairs,
+        val_pairs=val_pairs,
+        batch_size=args.batch_size,
+        workers_train=WORKERS_TRAIN,
+        workers_val=WORKERS_VAL,
+        prefetch_factor=args.prefetch_factor,
+    )
     total_steps = (
         math.ceil(len(train_pairs) / (args.batch_size * world_size)) * args.nb_epochs
     )
