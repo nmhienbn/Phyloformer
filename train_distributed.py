@@ -22,7 +22,7 @@ from torch.optim import Adam  # type:ignore
 from torch.utils.data import DataLoader  # type:ignore
 from transformers import get_linear_schedule_with_warmup
 
-from phyloformer.data import PhyloDataset
+from phyloformer.data import PhyloDataset, precompute_distance_cache
 from phyloformer.model import Phyloformer
 
 
@@ -246,6 +246,8 @@ class PhyloDataModule(lightning.LightningDataModule):
         workers_train,
         workers_val,
         prefetch_factor,
+        train_distance_cache_dir=None,
+        val_distance_cache_dir=None,
     ):
         super().__init__()
         self.train_pairs = train_pairs
@@ -254,6 +256,8 @@ class PhyloDataModule(lightning.LightningDataModule):
         self.workers_train = workers_train
         self.workers_val = workers_val
         self.prefetch_factor = prefetch_factor
+        self.train_distance_cache_dir = train_distance_cache_dir
+        self.val_distance_cache_dir = val_distance_cache_dir
 
     def _loader_kwargs(self, num_workers):
         kwargs = {
@@ -267,7 +271,10 @@ class PhyloDataModule(lightning.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(
-            dataset=PhyloDataset(self.train_pairs),
+            dataset=PhyloDataset(
+                self.train_pairs,
+                distance_cache_dir=self.train_distance_cache_dir,
+            ),
             batch_size=self.batch_size,
             shuffle=True,
             **self._loader_kwargs(self.workers_train),
@@ -275,7 +282,10 @@ class PhyloDataModule(lightning.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(
-            dataset=PhyloDataset(self.val_pairs),
+            dataset=PhyloDataset(
+                self.val_pairs,
+                distance_cache_dir=self.val_distance_cache_dir,
+            ),
             batch_size=self.batch_size,
             **self._loader_kwargs(self.workers_val),
         )
@@ -322,6 +332,28 @@ if __name__ == "__main__":
     )
     data_grp.add_argument(
         "--val-regex", "-R", default=None, help="Regex to filter validation examples"
+    )
+    data_grp.add_argument(
+        "--distance-cache-dir",
+        default=None,
+        type=str,
+        help=(
+            "Directory for cached distance targets (.pt). "
+            "Uses <distance-cache-dir>/train and <distance-cache-dir>/val."
+        ),
+    )
+    data_grp.add_argument(
+        "--precompute-distance-cache",
+        action="store_true",
+        help=(
+            "Precompute and save all target distance vectors before training "
+            "(requires --distance-cache-dir)."
+        ),
+    )
+    data_grp.add_argument(
+        "--overwrite-distance-cache",
+        action="store_true",
+        help="Overwrite existing cached target distances when precomputing.",
     )
 
     # STARTING POINT
@@ -529,6 +561,10 @@ if __name__ == "__main__":
             "You must provide both --train-trees and --train-alignments "
             "(either through CLI flags or --config)."
         )
+    if args.precompute_distance_cache and args.distance_cache_dir is None:
+        raise ValueError(
+            "--precompute-distance-cache requires --distance-cache-dir to be set."
+        )
 
     # Initialize logger
     wandb_logger = log.WandbLogger(
@@ -589,6 +625,27 @@ if __name__ == "__main__":
         args.val_regex,
     )
 
+    train_distance_cache_dir = None
+    val_distance_cache_dir = None
+    if args.distance_cache_dir is not None:
+        cache_root = pathlib.Path(args.distance_cache_dir)
+        train_distance_cache_dir = str(cache_root / "train")
+        val_distance_cache_dir = str(cache_root / "val")
+
+        if args.precompute_distance_cache:
+            print("Precomputing distance cache for training split...")
+            precompute_distance_cache(
+                train_pairs,
+                train_distance_cache_dir,
+                overwrite=args.overwrite_distance_cache,
+            )
+            print("Precomputing distance cache for validation split...")
+            precompute_distance_cache(
+                val_pairs,
+                val_distance_cache_dir,
+                overwrite=args.overwrite_distance_cache,
+            )
+
     trainer_hardware_args, world_size, using_slurm_env = resolve_trainer_hardware(args)
     if pre_args.config is not None:
         print(f"Loaded config: {pre_args.config}")
@@ -602,6 +659,8 @@ if __name__ == "__main__":
         workers_train=WORKERS_TRAIN,
         workers_val=WORKERS_VAL,
         prefetch_factor=args.prefetch_factor,
+        train_distance_cache_dir=train_distance_cache_dir,
+        val_distance_cache_dir=val_distance_cache_dir,
     )
     total_steps = (
         math.ceil(len(train_pairs) / (args.batch_size * world_size)) * args.nb_epochs

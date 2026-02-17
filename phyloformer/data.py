@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from itertools import combinations
 
 import dendropy
@@ -49,7 +51,30 @@ def load_distance_matrix(filepath, ids):
         l1, l2 = taxa.get_taxon(tip1), taxa.get_taxon(tip2)
         distances.append(dm.distance(l1, l2))
 
-    return torch.tensor(distances)
+    return torch.tensor(distances, dtype=torch.float32)
+
+
+def distance_cache_file(treefile, cache_dir):
+    return Path(cache_dir) / f"{Path(treefile).stem}.pt"
+
+
+def precompute_distance_cache(pairs, cache_dir, overwrite=False):
+    """
+    Precompute and cache all target distance vectors as <stem>.pt files.
+    """
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for treefile, alnfile in pairs:
+        cache_file = distance_cache_file(treefile, cache_dir)
+        if cache_file.exists() and not overwrite:
+            continue
+
+        _, ids = load_alignment(alnfile)
+        y = load_distance_matrix(treefile, ids)
+        tmp_file = cache_file.with_suffix(f".{os.getpid()}.tmp")
+        torch.save(y, tmp_file)
+        os.replace(tmp_file, cache_file)
 
 
 class PhyloDataset(Dataset):
@@ -58,11 +83,14 @@ class PhyloDataset(Dataset):
     and returns the corresponding tensor objects
     """
 
-    def __init__(self, pairs):
+    def __init__(self, pairs, distance_cache_dir=None):
         """
         pairs: List[(str,str)] = a list of (treefile, alnfile) paths
         """
         self.pairs = pairs
+        self.distance_cache_dir = distance_cache_dir
+        if distance_cache_dir is not None:
+            Path(distance_cache_dir).mkdir(parents=True, exist_ok=True)
 
     def __len__(self):
         return len(self.pairs)
@@ -70,6 +98,18 @@ class PhyloDataset(Dataset):
     def __getitem__(self, index):
         treefile, alnfile = self.pairs[index]
         x, ids = load_alignment(alnfile)
-        y = load_distance_matrix(treefile, ids)
+        y = None
+
+        if self.distance_cache_dir is not None:
+            cache_file = distance_cache_file(treefile, self.distance_cache_dir)
+            if cache_file.exists():
+                y = torch.load(cache_file, map_location="cpu")
+            else:
+                y = load_distance_matrix(treefile, ids)
+                tmp_file = cache_file.with_suffix(f".{os.getpid()}.tmp")
+                torch.save(y, tmp_file)
+                os.replace(tmp_file, cache_file)
+        else:
+            y = load_distance_matrix(treefile, ids)
 
         return x, y
