@@ -449,6 +449,16 @@ if __name__ == "__main__":
         "--batch-size", "-s", default=4, type=int, help="Training batch size"
     )
     train_grp.add_argument(
+        "--accumulate-grad-batches",
+        default=1,
+        type=int,
+        help=(
+            "Number of micro-batches to accumulate before each optimizer step. "
+            "Use with a smaller --batch-size to reduce VRAM while keeping "
+            "a similar effective global batch size."
+        ),
+    )
+    train_grp.add_argument(
         "--workers-train",
         default=None,
         type=int,
@@ -616,6 +626,8 @@ if __name__ == "__main__":
     LOGGING_STEPS = args.log_every
     if args.prefetch_factor < 1:
         raise ValueError("--prefetch-factor must be >= 1.")
+    if args.accumulate_grad_batches < 1:
+        raise ValueError("--accumulate-grad-batches must be >= 1.")
 
     N_CPUS = int(os.environ.get("SLURM_CPUS_PER_TASK", cpu_count()))
     NUM_WORKERS = N_CPUS // 2
@@ -709,6 +721,16 @@ if __name__ == "__main__":
     if using_slurm_env:
         print("Using SLURM environment variables for distributed setup.")
 
+    effective_global_batch_size = (
+        args.batch_size * world_size * args.accumulate_grad_batches
+    )
+    print(
+        "Effective global batch size "
+        f"(micro_batch x world_size x accumulate): "
+        f"{args.batch_size} x {world_size} x {args.accumulate_grad_batches} "
+        f"= {effective_global_batch_size}"
+    )
+
     datamodule = PhyloDataModule(
         train_pairs=train_pairs,
         val_pairs=val_pairs,
@@ -721,9 +743,11 @@ if __name__ == "__main__":
         train_alignment_cache_dir=train_alignment_cache_dir,
         val_alignment_cache_dir=val_alignment_cache_dir,
     )
-    total_steps = (
-        math.ceil(len(train_pairs) / (args.batch_size * world_size)) * args.nb_epochs
+    train_batches_per_epoch = math.ceil(len(train_pairs) / (args.batch_size * world_size))
+    optimizer_steps_per_epoch = math.ceil(
+        train_batches_per_epoch / args.accumulate_grad_batches
     )
+    total_steps = optimizer_steps_per_epoch * args.nb_epochs
 
     criterion = torch.nn.L1Loss()
     model = LightningAxialTransformer(
@@ -742,6 +766,7 @@ if __name__ == "__main__":
     identifier = (
         f"LR_{args.learning_rate}_O_Adam_"
         f"L_L1_E_{args.nb_epochs}_BS_{args.batch_size}_"
+        f"ACC_{args.accumulate_grad_batches}_"
         f"NB_{args.nb_blocks}_NH_{args.nb_heads}_HD_{args.embed_dim}_"
         f"D_{0.0}_W{args.warmup_steps}"
     )
@@ -786,7 +811,7 @@ if __name__ == "__main__":
             filename="{epoch}-{step}-{val_loss:.4f}-{train_loss:.4f}",
             save_top_k=-1,  # Keep all checkpoints
             save_last=True,  # Add symbolic link to point to last checkpoint
-            every_n_train_steps=VAL_CHECK_STEPS,
+            every_n_train_steps=VAL_CHECK_STEPS * args.accumulate_grad_batches,
             save_on_train_epoch_end=False,  # Save after validation so the value is correct in filename
         )
     ]
@@ -814,9 +839,10 @@ if __name__ == "__main__":
     trainer_args = {
         "max_epochs": args.nb_epochs,
         "log_every_n_steps": LOGGING_STEPS,
-        "val_check_interval": VAL_CHECK_STEPS,
+        "val_check_interval": VAL_CHECK_STEPS * args.accumulate_grad_batches,
         "logger": wandb_logger,
         "callbacks": callbacks,
+        "accumulate_grad_batches": args.accumulate_grad_batches,
         "precision": args.precision,
         **trainer_hardware_args,
     }
