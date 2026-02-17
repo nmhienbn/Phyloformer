@@ -22,7 +22,11 @@ from torch.optim import Adam  # type:ignore
 from torch.utils.data import DataLoader  # type:ignore
 from transformers import get_linear_schedule_with_warmup
 
-from phyloformer.data import PhyloDataset, precompute_distance_cache
+from phyloformer.data import (
+    PhyloDataset,
+    precompute_alignment_cache,
+    precompute_distance_cache,
+)
 from phyloformer.model import Phyloformer
 
 
@@ -248,6 +252,8 @@ class PhyloDataModule(lightning.LightningDataModule):
         prefetch_factor,
         train_distance_cache_dir=None,
         val_distance_cache_dir=None,
+        train_alignment_cache_dir=None,
+        val_alignment_cache_dir=None,
     ):
         super().__init__()
         self.train_pairs = train_pairs
@@ -258,6 +264,8 @@ class PhyloDataModule(lightning.LightningDataModule):
         self.prefetch_factor = prefetch_factor
         self.train_distance_cache_dir = train_distance_cache_dir
         self.val_distance_cache_dir = val_distance_cache_dir
+        self.train_alignment_cache_dir = train_alignment_cache_dir
+        self.val_alignment_cache_dir = val_alignment_cache_dir
 
     def _loader_kwargs(self, num_workers):
         kwargs = {
@@ -274,6 +282,7 @@ class PhyloDataModule(lightning.LightningDataModule):
             dataset=PhyloDataset(
                 self.train_pairs,
                 distance_cache_dir=self.train_distance_cache_dir,
+                alignment_cache_dir=self.train_alignment_cache_dir,
             ),
             batch_size=self.batch_size,
             shuffle=True,
@@ -285,6 +294,7 @@ class PhyloDataModule(lightning.LightningDataModule):
             dataset=PhyloDataset(
                 self.val_pairs,
                 distance_cache_dir=self.val_distance_cache_dir,
+                alignment_cache_dir=self.val_alignment_cache_dir,
             ),
             batch_size=self.batch_size,
             **self._loader_kwargs(self.workers_val),
@@ -354,6 +364,28 @@ if __name__ == "__main__":
         "--overwrite-distance-cache",
         action="store_true",
         help="Overwrite existing cached target distances when precomputing.",
+    )
+    data_grp.add_argument(
+        "--alignment-cache-dir",
+        default=None,
+        type=str,
+        help=(
+            "Directory for cached one-hot alignments (.pt). "
+            "Uses <alignment-cache-dir>/train and <alignment-cache-dir>/val."
+        ),
+    )
+    data_grp.add_argument(
+        "--precompute-alignment-cache",
+        action="store_true",
+        help=(
+            "Precompute and save all one-hot alignments before training "
+            "(requires --alignment-cache-dir)."
+        ),
+    )
+    data_grp.add_argument(
+        "--overwrite-alignment-cache",
+        action="store_true",
+        help="Overwrite existing cached alignments when precomputing.",
     )
 
     # STARTING POINT
@@ -565,6 +597,10 @@ if __name__ == "__main__":
         raise ValueError(
             "--precompute-distance-cache requires --distance-cache-dir to be set."
         )
+    if args.precompute_alignment_cache and args.alignment_cache_dir is None:
+        raise ValueError(
+            "--precompute-alignment-cache requires --alignment-cache-dir to be set."
+        )
 
     # Initialize logger
     wandb_logger = log.WandbLogger(
@@ -646,6 +682,27 @@ if __name__ == "__main__":
                 overwrite=args.overwrite_distance_cache,
             )
 
+    train_alignment_cache_dir = None
+    val_alignment_cache_dir = None
+    if args.alignment_cache_dir is not None:
+        cache_root = pathlib.Path(args.alignment_cache_dir)
+        train_alignment_cache_dir = str(cache_root / "train")
+        val_alignment_cache_dir = str(cache_root / "val")
+
+        if args.precompute_alignment_cache:
+            print("Precomputing alignment cache for training split...")
+            precompute_alignment_cache(
+                train_pairs,
+                train_alignment_cache_dir,
+                overwrite=args.overwrite_alignment_cache,
+            )
+            print("Precomputing alignment cache for validation split...")
+            precompute_alignment_cache(
+                val_pairs,
+                val_alignment_cache_dir,
+                overwrite=args.overwrite_alignment_cache,
+            )
+
     trainer_hardware_args, world_size, using_slurm_env = resolve_trainer_hardware(args)
     if pre_args.config is not None:
         print(f"Loaded config: {pre_args.config}")
@@ -661,6 +718,8 @@ if __name__ == "__main__":
         prefetch_factor=args.prefetch_factor,
         train_distance_cache_dir=train_distance_cache_dir,
         val_distance_cache_dir=val_distance_cache_dir,
+        train_alignment_cache_dir=train_alignment_cache_dir,
+        val_alignment_cache_dir=val_alignment_cache_dir,
     )
     total_steps = (
         math.ceil(len(train_pairs) / (args.batch_size * world_size)) * args.nb_epochs

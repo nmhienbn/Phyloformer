@@ -18,13 +18,19 @@
   "project_name": "PHYLOFORMER_EXPERIMENTS",
   "run_name": "PFBASE_PAPER_4GPU",
   "accelerator": "gpu",
-  "devices": 8,
+  "devices": 4,
   "num_nodes": 1,
-  "strategy": "ddp_find_unused_parameters_false",
+  "strategy": "ddp",
   "ignore_slurm_env": true,
   "precision": "bf16-mixed",
   "workers_train": 8,
   "workers_val": 4,
   "prefetch_factor": 4,
-  "log_every": 500
+  "distance_cache_dir": "data/paper_pfbase/distance_cache",
+  "precompute_distance_cache": true,
+  "overwrite_distance_cache": false,
+  "alignment_cache_dir": "data/paper_pfbase/alignment_cache",
+  "precompute_alignment_cache": true,
+  "overwrite_alignment_cache": false
+
 }
