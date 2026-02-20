@@ -22,6 +22,7 @@ from torch.optim import Adam  # type:ignore
 from torch.utils.data import DataLoader  # type:ignore
 from transformers import get_linear_schedule_with_warmup
 
+from loss.quartet_siamese import QuartetSiameseLoss
 from phyloformer.data import (
     PhyloDataset,
     precompute_alignment_cache,
@@ -47,6 +48,18 @@ def MRE(
     if sqrt_preds:
         input = input**2
     return torch.mean(torch.abs(input - target) / target).detach()
+
+
+class MRELoss(torch.nn.Module):
+    """Mean Relative Error loss used for paper fine-tuning."""
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return torch.mean(torch.abs(input - target) / target)
+
+
+def reduce_loss(loss: torch.Tensor) -> torch.Tensor:
+    """Ensure criterion outputs are scalar for Lightning backward/logging."""
+    return loss if loss.ndim == 0 else loss.mean()
 
 
 def listdir_paths(root):
@@ -173,6 +186,36 @@ def resolve_trainer_hardware(args):
     return trainer_hw, world_size, using_slurm_env
 
 
+def load_pretrained_state_dict(model, checkpoint_path):
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    if isinstance(ckpt, dict) and "state_dict" in ckpt:
+        state_dict = ckpt["state_dict"]
+    else:
+        state_dict = ckpt
+    if not isinstance(state_dict, dict):
+        raise ValueError(
+            f"Unsupported checkpoint format at {checkpoint_path}. "
+            "Expected a state_dict or a Lightning checkpoint with 'state_dict'."
+        )
+
+    # Lightning checkpoints store keys as model.*, raw model checkpoints usually do not.
+    candidates = [state_dict]
+    if not any(str(k).startswith("model.") for k in state_dict.keys()):
+        candidates.append({f"model.{k}": v for k, v in state_dict.items()})
+
+    last_error = None
+    for candidate in candidates:
+        try:
+            model.load_state_dict(candidate, strict=True)
+            return
+        except RuntimeError as err:
+            last_error = err
+
+    raise RuntimeError(
+        f"Failed loading checkpoint weights from {checkpoint_path}: {last_error}"
+    )
+
+
 class LightningAxialTransformer(lightning.LightningModule):
     """Lighnint Object for Phyloformer training"""
 
@@ -223,7 +266,7 @@ class LightningAxialTransformer(lightning.LightningModule):
     def training_step(self, batch, *args, **kwargs):
         x, y = batch
         y_hat = self.model(x.float())
-        loss = self.criterion(y_hat, y.type_as(y_hat).squeeze())
+        loss = reduce_loss(self.criterion(y_hat, y.type_as(y_hat).squeeze()))
         self.log("train_loss", loss)
         self.log("learning_rate", self.optimizers().param_groups[0]["lr"])
         return loss
@@ -234,7 +277,7 @@ class LightningAxialTransformer(lightning.LightningModule):
         y = y.type_as(y_hat).squeeze()
 
         # Compute validation metrics and log them
-        loss = self.criterion(y_hat, y)
+        loss = reduce_loss(self.criterion(y_hat, y))
         d = {"val_mre": MRE(y_hat, y, False), "val_mae": MAE(y_hat, y, False)}
         self.log_dict(dict(val_loss=loss, **d), sync_dist=True)
 
@@ -511,6 +554,24 @@ if __name__ == "__main__":
             "and higher throughput."
         ),
     )
+    train_grp.add_argument(
+        "--loss",
+        default="mae",
+        choices=["mae", "mre", "quartet_siamese"],
+        help=(
+            "Training loss. Use 'mae' for PFBase pretraining and "
+            "'mre' or 'quartet_siamese' for fine-tuning."
+        ),
+    )
+    train_grp.add_argument(
+        "--quartet-sigma",
+        default=0.0,
+        type=float,
+        help=(
+            "Sigma term for QuartetSiameseLoss. "
+            "Used only when --loss quartet_siamese."
+        ),
+    )
 
     # LOGGING
     log_grp = parser.add_argument_group("LOGGING")
@@ -603,6 +664,8 @@ if __name__ == "__main__":
             "You must provide both --train-trees and --train-alignments "
             "(either through CLI flags or --config)."
         )
+    if args.base_model is not None and args.load_checkpoint is not None:
+        raise ValueError("Use either --base-model or --load-checkpoint, not both.")
     if args.precompute_distance_cache and args.distance_cache_dir is None:
         raise ValueError(
             "--precompute-distance-cache requires --distance-cache-dir to be set."
@@ -749,7 +812,18 @@ if __name__ == "__main__":
     )
     total_steps = optimizer_steps_per_epoch * args.nb_epochs
 
-    criterion = torch.nn.L1Loss()
+    if args.loss == "mae":
+        criterion = torch.nn.L1Loss()
+        loss_tag = "L1"
+    elif args.loss == "mre":
+        criterion = MRELoss()
+        loss_tag = "MRE"
+    elif args.loss == "quartet_siamese":
+        criterion = QuartetSiameseLoss(sigma=args.quartet_sigma)
+        loss_tag = f"QSIAM_S{args.quartet_sigma:g}"
+    else:
+        raise ValueError(f"Unsupported --loss value: {args.loss}")
+
     model = LightningAxialTransformer(
         nb_blocks=args.nb_blocks,
         nb_heads=args.nb_heads,
@@ -765,7 +839,7 @@ if __name__ == "__main__":
 
     identifier = (
         f"LR_{args.learning_rate}_O_Adam_"
-        f"L_L1_E_{args.nb_epochs}_BS_{args.batch_size}_"
+        f"L_{loss_tag}_E_{args.nb_epochs}_BS_{args.batch_size}_"
         f"ACC_{args.accumulate_grad_batches}_"
         f"NB_{args.nb_blocks}_NH_{args.nb_heads}_HD_{args.embed_dim}_"
         f"D_{0.0}_W{args.warmup_steps}"
@@ -773,10 +847,8 @@ if __name__ == "__main__":
 
     # Load weights from pre-trained PF instance
     if args.base_model is not None:
-        ckpt = torch.load(args.base_model, map_location="cpu")
-        model = LightningAxialTransformer(**ckpt["hyper_parameters"])
-        model.load_state_dict(ckpt["state_dict"])
-        del ckpt  # Free space used by the checkpoint
+        load_pretrained_state_dict(model, args.base_model)
+        print(f"Loaded base model weights from: {args.base_model}")
 
     # Load hyper-parameters if starting up from a checkpoint
     if args.load_checkpoint is not None:

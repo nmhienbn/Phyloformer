@@ -137,3 +137,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+RUN_PAPER_CONFIG.md
+figures/*
+runs/*
+results.tar.gz
