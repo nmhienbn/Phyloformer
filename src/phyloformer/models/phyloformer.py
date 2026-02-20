@@ -1,4 +1,4 @@
-import torch  # type:ignore
+import torch
 from scipy.special import binom
 from torch import nn
 
@@ -133,7 +133,7 @@ class Phyloformer(nn.Module):
         self.seq_len = seq_len
 
         # Initialize seq2pair matrix
-        initial_seq2pair = adaptable_seq2pair(20, SEQ2PAIR)
+        initial_seq2pair = adaptable_seq2pair(self.n_seqs, SEQ2PAIR)
         self.register_buffer('seq2pair', initial_seq2pair)
 
         self.embedding_block = nn.Sequential(

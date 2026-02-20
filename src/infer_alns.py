@@ -4,7 +4,7 @@ import numpy as np
 from glob import glob
 from pathlib import Path
 
-import torch  # type:ignore
+import torch
 from tqdm import tqdm
 
 from phyloformer.model import Phyloformer
