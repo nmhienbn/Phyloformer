@@ -1,9 +1,12 @@
 # Ignore additional files in data
-data/
+/data/*
 
 # Keep test case trees and MSAs 
-!data/testdata/msas/*
-!data/testdata/trees/*
+!/data/testdata/*
+!/data/testdata/msas/
+!/data/testdata/msas/*
+!/data/testdata/trees/
+!/data/testdata/trees/*
 
 simulations
 .DS_Store
