@@ -1,6 +1,6 @@
 
 import lightning
-from torch.utils.data import DataLoader  # type:ignore
+from torch.utils.data import DataLoader  
 
 from phyloformer.data import (
     PhyloDataset,

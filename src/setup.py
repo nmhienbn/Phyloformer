@@ -29,14 +29,12 @@ setup(
     },
     include_package_data=True,
     python_requires=">=3.7, <3.10",
-    entry_points = {
-        'console_scripts': [
-            "train_phyloformer = phyloformer.scripts.train:main",
-            "simulate_trees = phyloformer.scripts.simulateTrees:main",
-            "simulate_alignments = phyloformer.scripts.simulateAlignments:main",
-            "make_tensors = phyloformer.scripts.make_tensors:main",
-            "predict = phyloformer.scripts.predict:main",
-            "evaluate = phyloformer.scripts.evaluate:main",
+    entry_points={
+        "console_scripts": [
+            "train_phyloformer = phyloformer.training.train_distributed:main",
+            "simulate_trees = phyloformer.simulation.simulate_trees:main",
+            "simulate_alignments = phyloformer.simulation.alisim:main",
+            "predict = phyloformer.inference.infer_alns:main",
         ]
-    }
+    },
 )
