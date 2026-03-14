@@ -1,0 +1,7 @@
+n_tips: 50
+n_trees: 10000
+n_batches: 200
+seqlen: 500
+substitution_matrix: LG
+site_rates: GC
+root: "/beegfs/data/lblassel/BayesNJ_training_data_50tips_500aas"
