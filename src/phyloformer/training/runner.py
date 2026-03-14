@@ -31,7 +31,7 @@ def run_training(args):
         save_dir=args.output_dir,
         project=args.project_name,
         name=args.run_name,
-        offline=True,
+        offline=not args.wandb_sync,
     )
 
     print(f"Training with args:\n{args}")
@@ -111,6 +111,7 @@ def run_training(args):
         batch_size=args.batch_size,
         optim_func=Adam,
         criterion=criterion,
+        n_seqs=args.n_seqs,
     )
 
     identifier = (

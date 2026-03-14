@@ -6,6 +6,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 
 def _ensure_2d(vec: torch.Tensor) -> torch.Tensor:
     if vec.ndim == 1:
@@ -33,33 +35,25 @@ def get_1d_index(i: torch.Tensor, j: torch.Tensor, num_leaves: int) -> torch.Ten
     """
     i_min = torch.minimum(i, j)
     j_max = torch.maximum(i, j)
-    return (
-        i_min * num_leaves
-        - (i_min * (i_min + 1)) // 2
-        + j_max
-        - i_min
-        - 1
-    )
+    return i_min * num_leaves - (i_min * (i_min + 1)) // 2 + j_max - i_min - 1
 
 
 def sample_random_quartets(
     num_leaves: int,
     num_quartets: int,
     device: torch.device,
-) -> torch.Tensor:    
+) -> torch.Tensor:
     return torch.rand((num_quartets, num_leaves), device=device).topk(4, dim=1).indices
 
 
-class QuartetSiameseLoss(nn.Module):
-    component_names = ("quartet_loss", "siam_loss")
+class QuartetSoftmaxLoss(nn.Module):
 
-    def __init__(self, sigma: float = 1.0, num_quartets: int = 50):
-        """
-        sigma: weight for siamese MAE regularization.
-        num_quartets: number of random quartets sampled per batch.
-        """
+    def __init__(
+        self, temperature: float = 1.0, sigma: float = 1.0, num_quartets: int = 50
+    ):
         super().__init__()
-        self.inv_sigma = 1.0 / float(sigma)
+        self.register_buffer("sigma", torch.tensor(sigma, dtype=torch.float32))
+        self.inv_temperature = 1.0 / float(temperature)
         self.num_quartets = num_quartets
         self.mae = nn.L1Loss()
 
@@ -111,18 +105,9 @@ class QuartetSiameseLoss(nn.Module):
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         min_idx = torch.argmin(true_sums, dim=1)  # [batch, num_quartets]
 
-        e_candidates = torch.stack(
-            (
-                pred_sums[:, 1] - pred_sums[:, 2],  # min_idx == 0
-                pred_sums[:, 0] - pred_sums[:, 2],  # min_idx == 1
-                pred_sums[:, 0] - pred_sums[:, 1],  # min_idx == 2
-            ),
-            dim=1,
-        )
-        e = e_candidates.gather(1, min_idx.unsqueeze(1)).squeeze(1)
-        e_loss = (e**2).mean()
-        
-        siam_loss = self.mae(pred_pairs, true_pairs)
-        loss = e_loss * self.inv_sigma + siam_loss
+        logits = -(pred_sums.transpose(1, 2).reshape(-1, 3)) * self.inv_temperature
+        target = min_idx.reshape(-1)
 
-        return loss, e_loss, siam_loss
+        quartet_loss = F.cross_entropy(logits, target)
+
+        return quartet_loss + self.sigma * self.mae(y_pred_vec, y_true_vec)

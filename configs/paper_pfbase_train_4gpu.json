@@ -6,6 +6,7 @@
   "nb_blocks": 6,
   "embed_dim": 64,
   "nb_heads": 4,
+  "n_seqs": 50,
   "dropout": 0.0,
   "nb_epochs": 20,
   "warmup_steps": 3000,

@@ -115,7 +115,7 @@ class Phyloformer(nn.Module):
         n_heads: int = 4,
         h_dim: int = 64,
         dropout: float = 0.0,
-        n_seqs: int = 20,
+        n_seqs: int = 50,
         seq_len: int = 200,
         normalize: bool = True,
         heterodims: bool = False,

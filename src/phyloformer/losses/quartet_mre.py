@@ -6,6 +6,8 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 
 def _ensure_2d(vec: torch.Tensor) -> torch.Tensor:
     if vec.ndim == 1:
@@ -46,22 +48,28 @@ def sample_random_quartets(
     num_leaves: int,
     num_quartets: int,
     device: torch.device,
-) -> torch.Tensor:    
+) -> torch.Tensor:
     return torch.rand((num_quartets, num_leaves), device=device).topk(4, dim=1).indices
 
 
-class QuartetSiameseLoss(nn.Module):
-    component_names = ("quartet_loss", "siam_loss")
+class QuartetMRELoss(nn.Module):
+    component_names = ("quartet_loss", "mre_loss")
 
-    def __init__(self, sigma: float = 1.0, num_quartets: int = 50):
+    def __init__(
+        self,
+        lambda_q: float = 0.5,
+        margin: float = 0.05,
+        num_quartets: int = 2000,
+    ):
         """
-        sigma: weight for siamese MAE regularization.
+        lambda_q: weight of quartet ranking loss term.
+        margin: minimum margin enforced between true and cross topology sums.
         num_quartets: number of random quartets sampled per batch.
         """
         super().__init__()
-        self.inv_sigma = 1.0 / float(sigma)
+        self.lambda_q = lambda_q
+        self.margin = margin
         self.num_quartets = num_quartets
-        self.mae = nn.L1Loss()
 
     def forward(
         self,
@@ -81,6 +89,7 @@ class QuartetSiameseLoss(nn.Module):
             num_leaves = _infer_num_leaves(y_pred_vec.shape[1])
         if num_leaves < 4:
             raise ValueError("Quartet loss requires num_leaves >= 4.")
+
         expected_pairs = num_leaves * (num_leaves - 1) // 2
         if y_pred_vec.shape[1] != expected_pairs:
             raise ValueError(
@@ -111,18 +120,18 @@ class QuartetSiameseLoss(nn.Module):
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         min_idx = torch.argmin(true_sums, dim=1)  # [batch, num_quartets]
 
-        e_candidates = torch.stack(
-            (
-                pred_sums[:, 1] - pred_sums[:, 2],  # min_idx == 0
-                pred_sums[:, 0] - pred_sums[:, 2],  # min_idx == 1
-                pred_sums[:, 0] - pred_sums[:, 1],  # min_idx == 2
-            ),
-            dim=1,
-        )
-        e = e_candidates.gather(1, min_idx.unsqueeze(1)).squeeze(1)
-        e_loss = (e**2).mean()
-        
-        siam_loss = self.mae(pred_pairs, true_pairs)
-        loss = e_loss * self.inv_sigma + siam_loss
+        pred_s_true = pred_sums.gather(1, min_idx.unsqueeze(1))
+        margin_diffs = F.relu(pred_s_true - pred_sums + self.margin)
 
-        return loss, e_loss, siam_loss
+        mask = torch.ones_like(pred_sums, dtype=torch.bool)
+        mask.scatter_(1, min_idx.unsqueeze(1), False)
+        e_loss = (margin_diffs * mask).sum(dim=1).mean()
+
+        denom = y_true_vec.clamp_min(1e-8)
+        mre_loss = (torch.abs(y_pred_vec - y_true_vec) / denom).mean()
+        loss = mre_loss + self.lambda_q * e_loss
+
+        return loss, e_loss, mre_loss
+
+
+QuartetMarginMRELoss = QuartetMRELoss

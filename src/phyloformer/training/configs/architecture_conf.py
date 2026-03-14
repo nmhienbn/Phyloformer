@@ -14,3 +14,13 @@ def build_architecture_config(parser: ArgumentParser) -> None:
     arch_grp.add_argument(
         "--nb-heads", "-H", default=4, type=int, help="Number of attention heads"
     )
+    arch_grp.add_argument(
+        "--n-seqs",
+        default=50,
+        type=int,
+        help=(
+            "Initial number of taxa used to initialize Seq2Pair. "
+            "Set this to match pretrained checkpoints when loading strictly "
+            "(e.g. 50 for pf_base.ckpt)."
+        ),
+    )

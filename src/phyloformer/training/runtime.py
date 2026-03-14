@@ -5,7 +5,13 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
-from phyloformer.losses.quartet_siamese import QuartetSiameseLoss
+from phyloformer.losses import (
+    QuartetMRELoss,
+    QuartetPushCloseMRELoss,
+    QuartetSiameseLoss,
+    QuartetSiameseMRELoss,
+    QuartetSoftmaxLoss,
+)
 from phyloformer.data import (
     precompute_alignment_cache,
     precompute_distance_cache,
@@ -25,22 +31,63 @@ def load_pretrained_state_dict(model, checkpoint_path):
             "Expected a state_dict or a Lightning checkpoint with 'state_dict'."
         )
 
-    # Lightning checkpoints store keys as model.*, raw model checkpoints usually do not.
-    candidates = [state_dict]
-    if not any(str(k).startswith("model.") for k in state_dict.keys()):
-        candidates.append({f"model.{k}": v for k, v in state_dict.items()})
+    # Fine-tuning should load only backbone weights, not criterion/scheduler/etc.
+    backbone = model.model
+    target_state = backbone.state_dict()
+    backbone_state = {}
+    skipped_prefix = {}
 
-    last_error = None
-    for candidate in candidates:
-        try:
-            model.load_state_dict(candidate, strict=True)
-            return
-        except RuntimeError as err:
-            last_error = err
+    for src_key, src_tensor in state_dict.items():
+        if src_key.startswith("model."):
+            dst_key = src_key[len("model.") :]
+        elif src_key.startswith("criterion."):
+            skipped_prefix[src_key] = "criterion key"
+            continue
+        else:
+            # Support raw Phyloformer checkpoints without Lightning's "model." prefix.
+            dst_key = src_key
 
-    raise RuntimeError(
-        f"Failed loading checkpoint weights from {checkpoint_path}: {last_error}"
+        if dst_key not in target_state:
+            skipped_prefix[src_key] = "unknown key"
+            continue
+
+        backbone_state[dst_key] = src_tensor
+
+    if not backbone_state:
+        raise RuntimeError(
+            f"No compatible backbone weights found in checkpoint: {checkpoint_path}"
+        )
+
+    loadable_state = {}
+    skipped = dict(skipped_prefix)
+    for dst_key, src_tensor in backbone_state.items():
+        if target_state[dst_key].shape != src_tensor.shape:
+            skipped[f"model.{dst_key}"] = (
+                f"shape mismatch {tuple(src_tensor.shape)} -> "
+                f"{tuple(target_state[dst_key].shape)}"
+            )
+            continue
+        loadable_state[dst_key] = src_tensor
+
+    if not loadable_state:
+        raise RuntimeError(
+            "No shape-compatible backbone tensors found in checkpoint "
+            f"{checkpoint_path}."
+        )
+
+    backbone.load_state_dict(loadable_state, strict=False)
+    print(
+        "Loaded pretrained backbone weights: "
+        f"{len(loadable_state)}/{len(target_state)} tensors from {checkpoint_path}."
     )
+    if skipped:
+        preview = ", ".join(
+            f"{k} ({v})" for k, v in list(skipped.items())[:5]
+        )
+        print(
+            "Skipped incompatible checkpoint tensors: "
+            f"{len(skipped)} total. Examples: {preview}"
+        )
 
 
 def prepare_caches(args, train_pairs, val_pairs):
@@ -93,20 +140,91 @@ def prepare_caches(args, train_pairs, val_pairs):
     )
 
 
-def build_loss(args):
-    if args.loss == "mae":
-        criterion = torch.nn.L1Loss()
-        loss_tag = "L1"
-    elif args.loss == "mre":
-        criterion = MRELoss()
-        loss_tag = "MRE"
-    elif args.loss == "quartet_siamese":
-        criterion = QuartetSiameseLoss(sigma=args.quartet_sigma)
-        loss_tag = f"QSIAM_S{args.quartet_sigma:g}"
-    else:
-        raise ValueError(f"Unsupported --loss value: {args.loss}")
+def _build_mae_loss(_args):
+    return torch.nn.L1Loss(), "L1"
 
+
+def _build_mre_loss(_args):
+    return MRELoss(), "MRE"
+
+
+def _build_quartet_siamese_loss(args):
+    criterion = QuartetSiameseLoss(
+        sigma=args.quartet_sigma,
+        num_quartets=args.quartet_num_samples,
+    )
+    loss_tag = f"QSIAM_S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
     return criterion, loss_tag
+
+
+def _build_quartet_softmax_loss(args):
+    criterion = QuartetSoftmaxLoss(
+        temperature=args.quartet_softmax_temperature,
+        sigma=args.quartet_sigma,
+        num_quartets=args.quartet_num_samples,
+    )
+    loss_tag = (
+        f"QSOFT_T{args.quartet_softmax_temperature:g}_"
+        f"S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
+    )
+    return criterion, loss_tag
+
+
+def _build_quartet_mre_loss(args):
+    criterion = QuartetMRELoss(
+        lambda_q=args.quartet_mre_lambda,
+        margin=args.quartet_mre_margin,
+        num_quartets=args.quartet_num_samples,
+    )
+    loss_tag = (
+        f"QMRE_L{args.quartet_mre_lambda:g}_"
+        f"M{args.quartet_mre_margin:g}_Q{args.quartet_num_samples}"
+    )
+    return criterion, loss_tag
+
+
+def _build_quartet_siamese_mre_loss(args):
+    criterion = QuartetSiameseMRELoss(
+        sigma=args.quartet_sigma,
+        num_quartets=args.quartet_num_samples,
+    )
+    loss_tag = f"QSIAM_MRE_S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
+    return criterion, loss_tag
+
+
+def _build_quartet_push_close_loss(args):
+    criterion = QuartetPushCloseMRELoss(
+        lambda_q=args.quartet_lambda_q,
+        margin=args.quartet_margin,
+        num_quartets=args.quartet_num_samples,
+    )
+    loss_tag = (
+        f"QPUSH_L{args.quartet_lambda_q:g}_"
+        f"M{args.quartet_margin:g}_Q{args.quartet_num_samples}"
+    )
+    return criterion, loss_tag
+
+
+LOSS_BUILDERS = {
+    "mae": _build_mae_loss,
+    "mre": _build_mre_loss,
+    "quartet_siamese": _build_quartet_siamese_loss,
+    "quartet_softmax": _build_quartet_softmax_loss,
+    "quartet_mre": _build_quartet_mre_loss,
+    "quartet_siamese_mre": _build_quartet_siamese_mre_loss,
+    "quartet_push_close": _build_quartet_push_close_loss,
+}
+
+
+def build_loss(args):
+    try:
+        builder = LOSS_BUILDERS[args.loss]
+    except KeyError as exc:
+        valid = ", ".join(sorted(LOSS_BUILDERS.keys()))
+        raise ValueError(
+            f"Unsupported --loss value: {args.loss}. Valid values: {valid}"
+        ) from exc
+    return builder(args)
 
 
 def build_callbacks(args, identifier, VAL_CHECK_STEPS):

@@ -83,7 +83,7 @@ cd Phyloformer && conda activate phylo
 python infer_alns.py -o data/testdata/pf_matrices models/pf.ckpt data/testdata/msas
 
 # Infer trees with FastME
-mkdir data/testdata/pf_trees
+mkdir -p data/testdata/pf_trees
 for file in data/testdata/pf_matrices/*; do
   base="${file##*/}"
   stem="${base%%.*}"
