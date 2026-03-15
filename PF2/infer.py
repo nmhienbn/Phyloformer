@@ -36,11 +36,21 @@ def vec_to_mat(preds, n):
 
 
 def mat_to_phylip(dm, ids):
+    if torch.is_tensor(dm):
+        dm = dm.detach().cpu()
+        if dm.ndim == 3:
+            if dm.shape[0] != 1:
+                raise ValueError(f"Expected a single distance matrix, got shape {tuple(dm.shape)}")
+            dm = dm.squeeze(0)
+        dm = (dm + dm.transpose(-1, -2)) / 2
+        dm = dm.clamp_min(0)
+        dm.fill_diagonal_(0)
+
     n = len(ids)
 
     s = f"{n}\n"
     for id, row in zip(ids, dm):
-        row_s = " ".join([f"{x:.10f}" for x in row])
+        row_s = " ".join(f"{float(x):.10f}" for x in row)
         s += f"{id} {row_s}\n"
 
     return s

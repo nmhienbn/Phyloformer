@@ -7,7 +7,16 @@ from collections import defaultdict
 from glob import glob
 from itertools import combinations
 from pathlib import Path
-from typing import Optional, Union, override
+from typing import Optional, Union
+
+try:
+    from typing import override
+except ImportError:
+    try:
+        from typing_extensions import override
+    except ImportError:
+        def override(func):
+            return func
 
 import numpy as np
 import torch

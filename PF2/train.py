@@ -193,6 +193,7 @@ class BayesNJTrainer:
         treedir_v,
         msadir_v,
         cache_root,
+        wandb_sync=False,
         run_name=None,
         temperature=None,
         brlen_weight=None,
@@ -233,6 +234,7 @@ class BayesNJTrainer:
         self.project_root = project_root
         self.log_every = log_every
         self.val_every = val_every
+        self.wandb_sync = wandb_sync
         self.mixed_precision = mixed_precision
         self.use_deepspeed = use_deepspeed
         self.use_flexattention = use_flexattention
@@ -279,6 +281,7 @@ class BayesNJTrainer:
             project_root=self.project_root,
             log_every=self.log_every,
             val_every=self.val_every,
+            wandb_sync=self.wandb_sync,
             mixed_precision=self.mixed_precision,
             use_deepspeed=self.use_deepspeed,
             use_flexattention=self.use_flexattention,
@@ -356,7 +359,7 @@ class BayesNJTrainer:
         wandblogger = WandbLogger(
             name=self.run_name,
             save_dir=self.logdir,
-            offline=True,
+            offline=not self.wandb_sync,
             project=self.project,
             group=self.run_name,
             config={**self.run_params, "envvar": self._get_pf_envvars()},
@@ -390,12 +393,13 @@ class BayesNJTrainer:
     def _get_fabric_args(self) -> dict[str, Any]:
         if platform == "darwin":
             return dict()
-        else:
+        try:
             import idr_torch  # Only available on Jean-Zay # type: ignore
-
-            if idr_torch.size > 1:  # type: ignore
+        except ImportError:
+            n_devices = torch.cuda.device_count()
+            if n_devices > 1:
                 return dict(
-                    devices=idr_torch.size,
+                    devices=n_devices,
                     strategy=(
                         L.fabric.strategies.DeepSpeedStrategy(
                             stage=0, precision=self._get_precision()
@@ -404,10 +408,24 @@ class BayesNJTrainer:
                         else "ddp"
                     ),
                     accelerator="gpu",
-                    num_nodes=idr_torch.num_nodes,
+                    num_nodes=1,
                 )
-            else:
-                return dict()
+            return dict()
+
+        if idr_torch.size > 1:  # type: ignore
+            return dict(
+                devices=idr_torch.size,
+                strategy=(
+                    L.fabric.strategies.DeepSpeedStrategy(
+                        stage=0, precision=self._get_precision()
+                    )
+                    if self.use_deepspeed
+                    else "ddp"
+                ),
+                accelerator="gpu",
+                num_nodes=idr_torch.num_nodes,
+            )
+        return dict()
 
     def get_tempdir(self) -> str:
         if platform == "darwin":
@@ -425,23 +443,39 @@ class BayesNJTrainer:
             get_all_data=self.optimize_brlens or self.use_l1_loss,
         )
 
+    def _get_local_per_rank_batch_size(self, batch_size: int) -> int:
+        distributed_ready = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+        if not distributed_ready:
+            return batch_size
+
+        try:
+            import idr_torch  # type: ignore
+        except ImportError:
+            world_size = torch.distributed.get_world_size()
+            return max(1, batch_size // max(1, world_size))
+        else:
+            if idr_torch.size > 1:  # type: ignore
+                return batch_size
+            return batch_size
+
     def get_training_sampler(self, dataset, batch_size, seed):
         if platform == "darwin":
             return CheckpointableRandomSampler(dataset, batch_size, seed)
-        else:
-            import idr_torch  # Only available on Jean-Zay # type: ignore
-
-            if idr_torch.size > 1:  # type: ignore
-                return CheckpointableDsitributedSampler(
-                    dataset,
-                    batch_size,
-                    seed,
-                    shuffle=True,
-                    drop_last=True,
-                    frac_subsample=0.1,
-                )
-            else:
-                return CheckpointableRandomSampler(dataset, batch_size, seed)
+        distributed_ready = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+        if distributed_ready:
+            return CheckpointableDsitributedSampler(
+                dataset,
+                batch_size,
+                seed,
+                shuffle=True,
+                drop_last=True,
+                frac_subsample=0.1,
+            )
+        return CheckpointableRandomSampler(dataset, batch_size, seed)
 
     def _init_dataloaders(self):
         if len(self.treedirs_t) > 1:
@@ -478,6 +512,7 @@ class BayesNJTrainer:
                 ),
             )
         else:
+            per_rank_batch_size = self._get_local_per_rank_batch_size(self.batch_sizes[0])
             self.loader_t = DataLoader(
                 (
                     ds := self._get_dataset(
@@ -486,13 +521,13 @@ class BayesNJTrainer:
                         f"{self.cache_root}/train",
                     )
                 ),
-                batch_size=self.batch_sizes[0],
+                batch_size=per_rank_batch_size,
                 sampler=self.get_training_sampler(
                     dataset=ds,
-                    batch_size=self.batch_sizes[0],
+                    batch_size=per_rank_batch_size,
                     seed=self.seed,
                 ),
-                shuffle=True,
+                shuffle=False,
                 num_workers=4 if platform != "darwin" else 0,
                 pin_memory=True,
             )
@@ -500,7 +535,7 @@ class BayesNJTrainer:
                 self._get_dataset(
                     self.treedirs_v[0], self.msadirs_v[0], f"{self.cache_root}/val"
                 ),
-                batch_size=self.batch_sizes[0],
+                batch_size=per_rank_batch_size,
                 shuffle=True,
                 num_workers=4 if platform != "darwin" else 0,
                 pin_memory=True,
@@ -830,6 +865,9 @@ class BayesNJTrainer:
                 if self.use_l1_loss:
                     # MAE, MSE,     MRE
                     loss, topoloss, brlenloss = self.get_batch_L1_loss(model, batch)
+                    mseloss = topoloss
+                    gammaloss = torch.zeros_like(loss)
+                    betaloss = torch.zeros_like(loss)
                 else:
                     if self.use_unambiguous_order:
                         loss, topoloss, brlenloss, gammaloss, betaloss, mseloss = (
@@ -838,6 +876,9 @@ class BayesNJTrainer:
 
                     else:
                         loss, topoloss, brlenloss = self.get_batch_NJ_loss(model, batch)
+                        mseloss = torch.zeros_like(loss)
+                        gammaloss = torch.zeros_like(loss)
+                        betaloss = torch.zeros_like(loss)
 
                 # Backward pass
                 self.fabric.backward(loss)
@@ -1023,7 +1064,8 @@ class BayesNJTrainer:
         model, opt = self.fabric.setup(self.model, self.opt)
 
         # # Mark additional forward methods
-        model.mark_forward_method("embed_parent_node")
+        if hasattr(model, "mark_forward_method"):
+            model.mark_forward_method("embed_parent_node")
         # model.mark_forward_method("predict_lognormal_params")
         # model.mark_forward_method("predict_beta_params")
 
@@ -1113,6 +1155,19 @@ def main():
         cmd.add_argument("-R", "--project-root", type=str, default=None)
         cmd.add_argument("-l", "--log-every", type=int, default=50)
         cmd.add_argument("-v", "--validate-every", type=int, default=None)
+        cmd.add_argument(
+            "--wandb-sync",
+            dest="wandb_sync",
+            action="store_true",
+            help="Enable online WandB logging (sync during training)",
+        )
+        cmd.add_argument(
+            "--no-wandb-sync",
+            dest="wandb_sync",
+            action="store_false",
+            help="Disable online WandB logging and keep runs offline",
+        )
+        cmd.set_defaults(wandb_sync=False)
         cmd.add_argument("-x", "--mixed-precision", action="store_true")
         cmd.add_argument("--deepspeed", action="store_true")
         cmd.add_argument("--flexattention", action="store_true")
@@ -1170,6 +1225,7 @@ def main():
             project_root=args.project_root,
             log_every=args.log_every,
             val_every=args.validate_every,
+            wandb_sync=args.wandb_sync,
             mixed_precision=args.mixed_precision,
             use_deepspeed=args.deepspeed,
             use_flexattention=args.flexattention,
@@ -1216,6 +1272,7 @@ def main():
             project_root=args.project_root,
             log_every=args.log_every,
             val_every=args.validate_every,
+            wandb_sync=args.wandb_sync,
             mixed_precision=args.mixed_precision,
             use_flexattention=prms["use_flexattention"],
             use_deepspeed=prms["use_deepspeed"],

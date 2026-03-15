@@ -136,6 +136,13 @@ STYLES["PF_QSIAM+FastME"] = (
 )
 
 
+def _register_external_style(method):
+    if method in STYLES:
+        return
+    color = sns.color_palette("tab10", n_colors=len(STYLES) + 1)[-1]
+    STYLES[method] = (color, "-.", "D")
+
+
 # To add titles to legends
 class LegendTitle(object):
     def __init__(self, text_props=None):
@@ -297,6 +304,20 @@ def _load_cmp_dist_pairwise(
         ]
         return pd.DataFrame(columns=cols)
     return pd.concat(kept, ignore_index=True)
+
+
+def _load_external_results(topo_path, dist_path, label, default_length=500):
+    _register_external_style(label)
+    topo = _load_cmp_topo(topo_path, label, default_length=default_length)
+    dists = _load_cmp_dist_pairwise(
+        dist_path,
+        label,
+        sample_frac=SAMPLING_FRAC,
+        chunksize=1_000_000,
+        default_length=default_length,
+    )
+    dists["dataset"] = "LG+GC"
+    return topo, dists
 
 
 def _load_lggc_topo_500(path):
@@ -1860,6 +1881,21 @@ if __name__ == "__main__":
         default="./runs/pfbase_quartet_siamese/eval_val_lggc/cmp_qsiam_dist.csv",
         help="Path to cmp_qsiam_dist.csv for single-figure mode.",
     )
+    parser.add_argument(
+        "--external-topo",
+        default=None,
+        help="Path to external cmp_topo.csv to include in full mode.",
+    )
+    parser.add_argument(
+        "--external-dist",
+        default=None,
+        help="Path to external cmp_dist.csv to include in full mode.",
+    )
+    parser.add_argument(
+        "--external-label",
+        default=None,
+        help="Method label for --external-topo/--external-dist in full mode.",
+    )
     args, _ = parser.parse_known_args()
     if args.cmp_topo or args.cmp_dist:
         run_cmp_mode(
@@ -1882,6 +1918,9 @@ if __name__ == "__main__":
     sns.set_style("darkgrid")
 
     with tqdm(bar_format="[{elapsed}] {desc}", maxinterval=1) as pbar:
+        outdir = Path(args.outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+
         ####################
         # TOPOLOGY METRICS #
         ####################
@@ -2323,6 +2362,89 @@ if __name__ == "__main__":
             plt.cla()
             pbar.update(1)
 
+        external_topo = None
+        external_dists = None
+        external_label = args.external_label.strip() if args.external_label else None
+        if args.external_topo or args.external_dist or external_label:
+            if not (args.external_topo and args.external_dist and external_label):
+                raise ValueError(
+                    "--external-topo, --external-dist, and --external-label must be provided together"
+                )
+            external_topo_path = Path(args.external_topo)
+            external_dist_path = Path(args.external_dist)
+            if external_topo_path.exists() and external_dist_path.exists():
+                pbar.set_description(f"Parsing {external_label} evaluation results")
+                external_topo, external_dists = _load_external_results(
+                    external_topo_path,
+                    external_dist_path,
+                    external_label,
+                    default_length=500,
+                )
+                pbar.update(1)
+
+                external_slug = re.sub(r"[^a-z0-9]+", "_", external_label.lower()).strip("_")
+                methods_plus_external = sorted(LGGC_METHODS_NO_HAMMING + [external_label])
+
+                pbar.set_description(f"Plotting LG+GC + {external_label} figures")
+                topo_plus = pd.concat(
+                    [lggc[lggc["length"] == 500], external_topo], ignore_index=True
+                )
+                dists_plus = pd.concat(
+                    [dists_lggc[dists_lggc["length"] == 500], external_dists],
+                    ignore_index=True,
+                )
+
+                fig = base_vs_ft(
+                    topo_plus,
+                    dists_plus,
+                    (9, 8),
+                    methods=["PF+FastME", "PF_Base+FastME", external_label],
+                )
+                plt.savefig(outdir / f"base_vs_mre_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
+                fig = single_LGGC_normRF(
+                    topo_plus, figsize, methods=methods_plus_external
+                )
+                plt.savefig(outdir / f"LGGC_500_rf_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
+                fig = single_LGGC_KFscore(
+                    topo_plus, figsize, methods=methods_plus_external
+                )
+                plt.savefig(outdir / f"LGGC_500_kf_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
+                fig = single_LGGC_wRF(
+                    topo_plus, figsize, methods=methods_plus_external
+                )
+                plt.savefig(outdir / f"LGGC_500_wrf_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
+                fig = single_LGGC_mae(
+                    dists_plus, figsize, methods=methods_plus_external
+                )
+                plt.savefig(outdir / f"LGGC_500_mae_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
+                fig = single_LGGC_mre(
+                    dists_plus, figsize, methods=methods_plus_external
+                )
+                plt.savefig(outdir / f"LGGC_500_mre_plus_{external_slug}.pdf")
+                plt.clf()
+                plt.cla()
+                pbar.update(1)
+
         mult = 2
         figsize = (5 * mult + 1, 3 * mult)
         # Fine tune MAE
@@ -2401,6 +2523,25 @@ if __name__ == "__main__":
                 LGGC_METHODS_NO_HAMMING_PLUS_QSIAM,
             )
             plt.savefig("./figures/lggc_all_plus_qsiam.pdf")
+            plt.clf()
+            plt.cla()
+            pbar.update(1)
+
+        if external_topo is not None and external_dists is not None and external_label is not None:
+            external_slug = re.sub(r"[^a-z0-9]+", "_", external_label.lower()).strip("_")
+            pbar.set_description(f"Plotting all metrics for LG+GC + {external_label}")
+            fig = dataset_plot(
+                pd.concat(
+                    [lggc[lggc["length"] == 500], external_topo], ignore_index=True
+                ),
+                pd.concat(
+                    [dists_lggc[dists_lggc["length"] == 500], external_dists],
+                    ignore_index=True,
+                ),
+                figsize,
+                sorted(LGGC_METHODS_NO_HAMMING + [external_label]),
+            )
+            plt.savefig(outdir / f"lggc_all_plus_{external_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
