@@ -802,19 +802,96 @@ class EvoPF(nn.Module):
 
         return msa_emb, pairs
 
-    def forward(self, input):
+    def extract_features(self, input: Tensor) -> dict[str, Tensor]:
         msa, pairs = self.embed_input(input)
 
         for block in self.evoblocks:
             msa, pairs = block(msa, pairs)
 
-        # Compute distances
         dm = self.pairs_to_dm(pairs).squeeze(-1)
         if not self.symmetric:
             dm = (dm + dm.transpose(-1, -2)) / 2.0
 
+        seq_repr = msa.mean(-1).transpose(1, 2)
+        site_repr = msa.permute(0, 2, 3, 1)
+
+        return {
+            "distance_matrix": dm,
+            "msa": msa,
+            "site_repr": site_repr,
+            "seq_repr": seq_repr,
+            "pair_repr": pairs,
+        }
+
+    def forward(
+        self,
+        input,
+        brlens=None,
+        merge_order=None,
+        temperature=None,
+        topo_only: bool = False,
+        ignore_topo: bool = False,
+        return_tree_logprob: bool = False,
+        verbose: bool = True,
+    ):
+        features = self.extract_features(input)
+        dm = features["distance_matrix"]
+        if return_tree_logprob and dm.dim() == 2:
+            batch_size, _, _, n_seqs = input.shape
+            i, j = torch.tril_indices(n_seqs, n_seqs, -1, device=dm.device)
+            dm_sq = torch.zeros((batch_size, n_seqs, n_seqs), device=dm.device, dtype=dm.dtype)
+            dm_sq[:, i, j] = dm
+            dm = dm_sq + dm_sq.transpose(-1, -2)
+
         if self.output_msa_emb:
-            msa_emb = msa.mean(-1)
+            msa_emb = features["msa"].mean(-1)
+            if return_tree_logprob:
+                if brlens is None or merge_order is None:
+                    raise ValueError(
+                        "brlens and merge_order are required when return_tree_logprob=True"
+                    )
+                from .treefuncs import batch_compute_tree_logprob
+
+                (
+                    logprob_topo,
+                    logprob_gamma,
+                    logprob_beta,
+                    logprob_brlens,
+                    mse_brlens,
+                ) = batch_compute_tree_logprob(
+                    self,
+                    msa_emb,
+                    dm,
+                    brlens.to(dm),
+                    merge_order.to(dm),
+                    temperature,
+                    topo_only=topo_only,
+                    ignore_topo=ignore_topo,
+                    verbose=verbose,
+                )
+
+                # DDP expects all parameters participating in a step to be seen
+                # through forward(). These zero terms keep optional heads and
+                # distance output connected without changing the loss value.
+                zero_dependency = dm.sum() * 0.0
+                for module_name in ["gamma_sampler", "beta_sampler"]:
+                    if hasattr(self, module_name):
+                        module = getattr(self, module_name)
+                        zero_dependency = zero_dependency + sum(
+                            (param.sum() * 0.0 for param in module.parameters()),
+                            torch.zeros((), device=dm.device, dtype=dm.dtype),
+                        )
+                logprob_topo = logprob_topo + zero_dependency
+
+                return (
+                    dm,
+                    msa_emb,
+                    logprob_topo,
+                    logprob_gamma,
+                    logprob_beta,
+                    logprob_brlens,
+                    mse_brlens,
+                )
             # If we don't use dm in the loss (e.g. with learnable Q), then torch.Distributed will complain
             # Here I am making sure that dm is used with no consequence on the computation hopefully.
             return dm, msa_emb + dm.sum() * 0. 

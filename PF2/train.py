@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import lightning as L
 import torch
+import torch.nn.functional as F
 from lightning.pytorch.loggers import CSVLogger
 from torch.optim import Adam, Optimizer
 from torch.optim.lr_scheduler import LambdaLR
@@ -25,6 +26,7 @@ from BayesNJ.core import (
     DistributedSameSizeSampler,
     MultisizeUnambiguousMergeOrderDataset,
     NJDataset,
+    SameSizeBatchSampler,
     UnambiguousMergeOrderDataset,
     batch_tree_probability_with_merges_branches,
 )
@@ -32,12 +34,18 @@ from BayesNJ.evopf import EvoPF
 from BayesNJ.pf_sdk.pf.data import (
     CheckpointableDsitributedSampler,
     CheckpointableRandomSampler,
+    PADDING_TOKEN,
 )
 from BayesNJ.pf_sdk.pf.modules import PhyloformerSeq, PhyloformerSeqMixed, seq2pairs
 from BayesNJ.pf_sdk.pf.training import generate_run_name
 from BayesNJ.treefuncs import batch_compute_tree_logprob
 
 SAVE_CHECKPOINT_SPACE = os.environ.get("PF_SAVE_CHECKPOINT_SPACE", "False").lower() in [
+    "true",
+    "t",
+    "1",
+]
+DISABLE_WANDB_LOGGER = os.environ.get("PF_DISABLE_WANDB_LOGGER", "False").lower() in [
     "true",
     "t",
     "1",
@@ -158,6 +166,27 @@ class CallBack2:
         return (-loss).item()
 
 
+def collate_unambiguous_merge_order_batch(batch):
+    msas, merge_orders, brlens, ids = zip(*batch)
+    max_len = max(msa.shape[1] for msa in msas)
+    max_nseqs = max(msa.shape[2] for msa in msas)
+    padded_msas = [
+        F.pad(
+            msa,
+            (0, max_nseqs - msa.shape[2], 0, max_len - msa.shape[1]),
+            mode="constant",
+            value=PADDING_TOKEN,
+        )
+        for msa in msas
+    ]
+    return (
+        torch.stack(padded_msas),
+        torch.stack(merge_orders),
+        torch.stack(brlens),
+        list(ids),
+    )
+
+
 class BayesNJTrainer:
     def __init__(
         self,
@@ -200,6 +229,8 @@ class BayesNJTrainer:
         brlen_annealing=None,
         no_topo_steps=None,
         gradient_clipping_value=None,
+        early_stop_patience: int | None = 1000000,
+        early_stop_min_delta: float = 0.0,
         resuming=False,
         base_size=None,
         lgnrl_mu_x_min: Optional[float] = None,
@@ -251,6 +282,8 @@ class BayesNJTrainer:
         self.brlen_annealing = brlen_annealing
         self.no_topo_steps = no_topo_steps or 0
         self.gradient_clipping_value = gradient_clipping_value
+        self.early_stop_patience = early_stop_patience
+        self.early_stop_min_delta = early_stop_min_delta
         self.resuming = resuming
         self.base_size = base_size
         self.loss_clamp_params = dict(
@@ -356,6 +389,8 @@ class BayesNJTrainer:
     def _init_loggers(self):
         # Init loggers
         csvlogger = CSVLogger(save_dir=self.logdir, version=None)
+        if DISABLE_WANDB_LOGGER:
+            return [csvlogger]
         wandblogger = WandbLogger(
             name=self.run_name,
             save_dir=self.logdir,
@@ -478,38 +513,51 @@ class BayesNJTrainer:
         return CheckpointableRandomSampler(dataset, batch_size, seed)
 
     def _init_dataloaders(self):
+        num_workers = int(os.environ.get("PF_DATALOADER_WORKERS", "4"))
+        if platform == "darwin":
+            num_workers = 0
+
         if len(self.treedirs_t) > 1:
+            distributed_ready = (
+                torch.distributed.is_available() and torch.distributed.is_initialized()
+            )
+            train_dataset = MultisizeUnambiguousMergeOrderDataset(
+                self.treedirs_t, self.msadirs_t
+            )
+            val_dataset = MultisizeUnambiguousMergeOrderDataset(
+                self.treedirs_v, self.msadirs_v
+            )
+            train_sampler_cls = (
+                DistributedSameSizeSampler if distributed_ready else SameSizeBatchSampler
+            )
+            val_sampler_cls = (
+                DistributedSameSizeSampler if distributed_ready else SameSizeBatchSampler
+            )
             self.loader_t = DataLoader(
-                (
-                    ds := MultisizeUnambiguousMergeOrderDataset(
-                        self.treedirs_t, self.msadirs_t
-                    )
-                ),
-                num_workers=4 if platform != "darwin" else 0,
+                train_dataset,
+                num_workers=num_workers,
                 pin_memory=True,
-                batch_sampler=DistributedSameSizeSampler(
-                    ds,
+                batch_sampler=train_sampler_cls(
+                    train_dataset,
                     base_size=50,
                     base_batch_size=self.base_size,
                     shuffle=True,
                     seed=self.seed,
                 ),
+                collate_fn=collate_unambiguous_merge_order_batch,
             )
             self.loader_v = DataLoader(
-                (
-                    ds := MultisizeUnambiguousMergeOrderDataset(
-                        self.treedirs_v, self.msadirs_v
-                    )
-                ),
-                num_workers=4 if platform != "darwin" else 0,
+                val_dataset,
+                num_workers=num_workers,
                 pin_memory=True,
-                batch_sampler=DistributedSameSizeSampler(
-                    ds,
+                batch_sampler=val_sampler_cls(
+                    val_dataset,
                     base_size=50,
                     base_batch_size=(self.base_size or 1) * 2,
                     shuffle=False,
                     seed=self.seed,
                 ),
+                collate_fn=collate_unambiguous_merge_order_batch,
             )
         else:
             per_rank_batch_size = self._get_local_per_rank_batch_size(self.batch_sizes[0])
@@ -528,7 +576,7 @@ class BayesNJTrainer:
                     seed=self.seed,
                 ),
                 shuffle=False,
-                num_workers=4 if platform != "darwin" else 0,
+                num_workers=num_workers,
                 pin_memory=True,
             )
             self.loader_v = DataLoader(
@@ -537,7 +585,7 @@ class BayesNJTrainer:
                 ),
                 batch_size=per_rank_batch_size,
                 shuffle=True,
-                num_workers=4 if platform != "darwin" else 0,
+                num_workers=num_workers,
                 pin_memory=True,
             )
 
@@ -576,7 +624,6 @@ class BayesNJTrainer:
         )
 
     def _load_model_weights(self, weights):
-        print(self.model)
         self.model.load_state_dict(weights)
 
     def make_tar_info(self, filename, filesize):
@@ -590,10 +637,62 @@ class BayesNJTrainer:
 
         return info
 
+    def _is_distributed(self):
+        return (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+
+    def _broadcast_tensor(self, tensor: torch.Tensor, src: int = 0):
+        if self._is_distributed():
+            torch.distributed.broadcast(tensor, src=src)
+        return tensor
+
+    def _broadcast_bool(self, value: bool, device: torch.device, src: int = 0):
+        tensor = torch.tensor([int(value)], device=device, dtype=torch.int32)
+        self._broadcast_tensor(tensor, src=src)
+        return bool(tensor.item())
+
+    def _distributed_barrier(self):
+        if not self._is_distributed():
+            return
+
+        if torch.cuda.is_available():
+            torch.distributed.barrier(device_ids=[torch.cuda.current_device()])
+        else:
+            torch.distributed.barrier()
+
+    def _get_loader_stateful_sampler(self, loader):
+        for attr in ("batch_sampler", "sampler"):
+            sampler = getattr(loader, attr, None)
+            if sampler is not None and (
+                hasattr(sampler, "set_epoch") or hasattr(sampler, "set_starting_step")
+            ):
+                return sampler
+        return None
+
+    def _write_model_summary(self, model, path: str):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"{model}\n")
+
+    def _sync_early_stopping_state(self, device: torch.device):
+        self.best_val_loss = self._broadcast_tensor(
+            self.best_val_loss.detach().clone().to(device), src=0
+        )
+
+        counter = torch.tensor(
+            [self.epochs_without_improvement], device=device, dtype=torch.long
+        )
+        self._broadcast_tensor(counter, src=0)
+        self.epochs_without_improvement = int(counter.item())
+
     def save_checkpoint(self, model, opt, sched, val_loss, end_of_epoch=False):
         """
         Save a complete checkpoint of the trainer
         """
+        previous_best_val_loss = self.best_val_loss.detach().clone()
+        new_best_val_loss = torch.minimum(previous_best_val_loss, val_loss.detach())
+        is_best = bool((val_loss.detach() < previous_best_val_loss).item())
+
         if self.fabric.is_global_zero:  # Only save on main device
             state = {
                 "model": model.state_dict(),
@@ -603,6 +702,8 @@ class BayesNJTrainer:
                 "step": self.global_step,
                 "epoch_step": self.epoch_step if not end_of_epoch else 0,
                 "val_loss": val_loss.item(),
+                "best_val_loss": new_best_val_loss.item(),
+                "epochs_without_improvement": self.epochs_without_improvement,
                 "hparams": self.run_params,
             }
 
@@ -629,15 +730,20 @@ class BayesNJTrainer:
                 torch.save(state, os.path.join(self.ckptdir, "last_epoch.ckpt"))
 
             # Keep current best checkpoint
-            if val_loss < self.best_val_loss:
+            if is_best:
                 torch.save(state, os.path.join(self.ckptdir, "best_val_loss.ckpt"))
-                self.best_val_loss = val_loss
 
-        self.fabric.barrier()
+        self.best_val_loss = new_best_val_loss
+
+        self._distributed_barrier()
+        self.best_val_loss = self._broadcast_tensor(
+            self.best_val_loss.detach().clone().to(val_loss.device), src=0
+        )
 
     def set_checkpoint_to_load(self, ckpt_obj, end_of_epoch_checkpoint: bool = True):
         self.checkpoint_to_load = ckpt_obj
-        if end_of_epoch_checkpoint:
+        inferred_end_of_epoch = ckpt_obj.get("epoch_step", 0) == 0
+        if end_of_epoch_checkpoint or inferred_end_of_epoch:
             self.checkpoint_to_load["epoch"] += 1
         else:
             # if len(ckpt_obj["hparams"]["msadir_t"]) > 1:
@@ -769,21 +875,26 @@ class BayesNJTrainer:
         msa, merge_order, brlens, _ = batch
         batch_size, _, _, n_seqs = msa.shape
 
-        dm, msa_emb = self.get_evopf_pred(model, msa, False)
-
-        # compute loss
-        logprob_topo, logprob_gamma, logprob_beta, logprob_brlens, mse_brlens = (
-            batch_compute_tree_logprob(
-                model,
-                msa_emb,  # type: ignore
-                dm,
-                brlens.to(dm),
-                merge_order.to(dm),
-                self.temperature,
-                topo_only=not self.optimize_brlens,
-                ignore_topo=self.global_step < self.no_topo_steps,
-                verbose=verbose,
-            )
+        # In DDP/Fabric, custom EvoPF methods used by BayesNJ tree logprob must
+        # run inside EvoPF.forward(), otherwise the Fabric wrapper blocks them
+        # and DDP can miss gradients for the topology/branch modules.
+        (
+            dm,
+            _,
+            logprob_topo,
+            logprob_gamma,
+            logprob_beta,
+            logprob_brlens,
+            mse_brlens,
+        ) = model(
+            msa.float(),
+            brlens=brlens,
+            merge_order=merge_order,
+            temperature=self.temperature,
+            topo_only=not self.optimize_brlens,
+            ignore_topo=self.global_step < self.no_topo_steps,
+            return_tree_logprob=True,
+            verbose=verbose,
         )
 
         # Normalize by number of sequences for multi-size training
@@ -819,8 +930,6 @@ class BayesNJTrainer:
         # Train loop
         model.train()
 
-        print(model)
-
         # Init trackers
         accum = torch.zeros(1, device=model.device)
         accum_topo = torch.zeros(1, device=model.device)
@@ -839,14 +948,23 @@ class BayesNJTrainer:
 
         for lidx in torch.randperm(len(loaders_t), generator=rng):
             loader_t = loaders_t[lidx]
+            loader_sampler = self._get_loader_stateful_sampler(loader_t)
 
             # Distributed sampler reproducibility
-            if hasattr(loader_t.sampler, "set_epoch"):
-                loader_t.sampler.set_epoch(self.epoch)
-            if hasattr(loader_t.sampler, "set_starting_step"):
-                loader_t.sampler.set_starting_step(self.epoch_step)
+            if loader_sampler is not None and hasattr(loader_sampler, "set_epoch"):
+                loader_sampler.set_epoch(self.epoch)
+            if loader_sampler is not None and hasattr(
+                loader_sampler, "set_starting_step"
+            ):
+                loader_sampler.set_starting_step(self.epoch_step)
 
-            for batch in tqdm(loader_t, leave=False, desc="TRAIN"):
+            for batch in tqdm(
+                loader_t,
+                leave=False,
+                desc="TRAIN",
+                initial=self.epoch_step,
+                total=len(loader_t),
+            ):
                 # Forward pass
                 opt.zero_grad()
 
@@ -1033,9 +1151,10 @@ class BayesNJTrainer:
             reduce_op="mean",
         )
 
+        improved = avg_val_loss < (self.best_val_loss - self.early_stop_min_delta)
         self.save_checkpoint(model, opt, sched, avg_val_loss, end_of_epoch)
 
-        return avg_val_loss
+        return avg_val_loss, bool(improved.item())
 
     def fit(self):
         # Init fabric stuff
@@ -1074,6 +1193,7 @@ class BayesNJTrainer:
         self.global_step = self.start_step
         self.epoch_step = 0
         self.best_val_loss = torch.tensor([torch.inf], device=model.device)
+        self.epochs_without_improvement = 0
 
         # Make sure output directories exist
         if self.fabric.is_global_zero:
@@ -1086,11 +1206,19 @@ class BayesNJTrainer:
             self.global_step = self.checkpoint_to_load["step"] + 1
             self.epoch_step = self.checkpoint_to_load.get("epoch_step", 0)
             self.best_val_loss = torch.tensor(
-                [self.checkpoint_to_load["val_loss"]], device=model.device
+                [self.checkpoint_to_load.get("best_val_loss", self.checkpoint_to_load["val_loss"])], device=model.device
+            )
+            self.epochs_without_improvement = self.checkpoint_to_load.get(
+                "epochs_without_improvement", 0
             )
             model.load_state_dict(self.checkpoint_to_load["model"])
             opt.load_state_dict(self.checkpoint_to_load["optimizer"])
             sched.load_state_dict(self.checkpoint_to_load["scheduler"])
+
+        self._sync_early_stopping_state(model.device)
+
+        if self.fabric.is_global_zero:
+            self._write_model_summary(model, os.path.join(self.logdir, "model.txt"))
 
         # Run hyper-parameters
         if self.fabric.global_rank == 0:
@@ -1111,7 +1239,37 @@ class BayesNJTrainer:
                 self.epoch_step = 0  # reset step at end of epoch
 
                 # Run end of epoch validation
-                self.validate_epoch(model, loaders_v, opt, sched, end_of_epoch=True)
+                _, improved = self.validate_epoch(
+                    model, loaders_v, opt, sched, end_of_epoch=True
+                )
+
+                if self.early_stop_patience is not None:
+                    if improved:
+                        self.epochs_without_improvement = 0
+                    else:
+                        self.epochs_without_improvement += 1
+                        if self.fabric.is_global_zero:
+                            print(
+                                "No end-of-epoch val improvement for "
+                                f"{self.epochs_without_improvement} epoch(s). "
+                                f"Best val_loss: {self.best_val_loss.item():.6f}"
+                            )
+                    self._sync_early_stopping_state(model.device)
+
+                    should_stop = (
+                        self.epochs_without_improvement >= self.early_stop_patience
+                    )
+                    should_stop = self._broadcast_bool(
+                        should_stop, device=model.device, src=0
+                    )
+                    if should_stop:
+                        if self.fabric.is_global_zero:
+                            print(
+                                "Early stopping triggered at "
+                                f"epoch {self.epoch} with patience "
+                                f"{self.early_stop_patience}."
+                            )
+                        break
 
         except torch.cuda.OutOfMemoryError as e:
             print(f"OOM at epoch {self.epoch}.")
@@ -1179,6 +1337,18 @@ def main():
         cmd.add_argument("-N", "--branch-length-annealing", type=int, default=None)
         cmd.add_argument("-n", "--no-topo-steps", type=int, default=None)
         cmd.add_argument("-C", "--clip-gradients", type=float, default=None)
+        cmd.add_argument(
+            "--early-stop-patience",
+            type=int,
+            default=5,
+            help="Stop after this many end-of-epoch validations without val_loss improvement. Set negative to disable.",
+        )
+        cmd.add_argument(
+            "--early-stop-min-delta",
+            type=float,
+            default=0.0,
+            help="Minimum val_loss decrease required to reset early stopping patience.",
+        )
 
         ## Data paths
         cmd.add_argument("--base-batch-size", type=int, required=False)
@@ -1199,6 +1369,18 @@ def main():
     # Resume command
     resumer = subparsers.add_parser(name="resume", description="Resume a training run")
     resumer.add_argument("checkpoint")
+    resumer.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=None,
+        help="Override checkpoint early stopping patience on resume. Set negative to disable.",
+    )
+    resumer.add_argument(
+        "--early-stop-min-delta",
+        type=float,
+        default=None,
+        help="Override checkpoint early stopping min delta on resume.",
+    )
 
     args = parser.parse_args()
 
@@ -1241,6 +1423,8 @@ def main():
             brlen_annealing=args.branch_length_annealing,
             no_topo_steps=args.no_topo_steps,
             gradient_clipping_value=args.clip_gradients,
+            early_stop_patience=None if args.early_stop_patience < 0 else args.early_stop_patience,
+            early_stop_min_delta=args.early_stop_min_delta,
             base_size=args.base_batch_size,
             lgnrl_mu_x_min=args.lgnrl_mu_x_min,
             lgnrl_mu_x_max=args.lgnrl_mu_x_max,
@@ -1251,17 +1435,18 @@ def main():
     elif args.command == "finetune":
         ckpt = torch.load(args.checkpoint, map_location="cpu")
         prms = ckpt["hparams"]
+        get_hparam = prms.get
 
         trainer = BayesNJTrainer(
-            evopf=prms["evopf"],
+            evopf=get_hparam("evopf", True),
             embed_dim=prms["embed_dim"],
             pair_dim=prms["pair_dim"],
             n_heads=prms["n_heads"],
             n_blocks=prms["n_blocks"],
-            optimize_brlens=prms["optimize_brlens"],
-            mixed_atten=prms["mixed_atten"],
-            symmetric=prms["symmetric"],
-            dm_MLP=prms["dm_MLP"],
+            optimize_brlens=get_hparam("optimize_brlens", False),
+            mixed_atten=get_hparam("mixed_atten", False),
+            symmetric=get_hparam("symmetric", False),
+            dm_MLP=get_hparam("dm_MLP", False),
             batch_size=args.batch_size,
             epochs=args.epochs,
             warmup=args.warmup,
@@ -1274,10 +1459,11 @@ def main():
             val_every=args.validate_every,
             wandb_sync=args.wandb_sync,
             mixed_precision=args.mixed_precision,
-            use_flexattention=prms["use_flexattention"],
-            use_deepspeed=prms["use_deepspeed"],
+            use_flexattention=get_hparam("use_flexattention", False),
+            use_deepspeed=get_hparam("use_deepspeed", False),
             use_l1_loss=args.l1_loss,
-            use_unambiguous_order=prms["use_unambiguous_order"],
+            use_unambiguous_order=args.unambiguous_order
+            or get_hparam("use_unambiguous_order", False),
             treedir_t=args.train_trees,
             msadir_t=args.train_alns,
             treedir_v=args.val_trees,
@@ -1288,6 +1474,8 @@ def main():
             brlen_annealing=args.branch_length_annealing,
             no_topo_steps=args.no_topo_steps,
             gradient_clipping_value=args.clip_gradients,
+            early_stop_patience=None if args.early_stop_patience < 0 else args.early_stop_patience,
+            early_stop_min_delta=args.early_stop_min_delta,
             base_size=args.base_batch_size,
             lgnrl_mu_x_min=args.lgnrl_mu_x_min,
             lgnrl_mu_x_max=args.lgnrl_mu_x_max,
@@ -1299,7 +1487,15 @@ def main():
 
     elif args.command == "resume":
         ckpt = torch.load(args.checkpoint, map_location="cpu")
-        trainer = BayesNJTrainer(**ckpt["hparams"], resuming=True)
+        hparams = dict(ckpt["hparams"])
+        if args.early_stop_patience is not None:
+            hparams["early_stop_patience"] = (
+                None if args.early_stop_patience < 0 else args.early_stop_patience
+            )
+        if args.early_stop_min_delta is not None:
+            hparams["early_stop_min_delta"] = args.early_stop_min_delta
+
+        trainer = BayesNJTrainer(**hparams, resuming=True)
         trainer.set_checkpoint_to_load(
             ckpt, end_of_epoch_checkpoint="_epoch.ckpt" in args.checkpoint
         )

@@ -52,8 +52,8 @@ def batch_compute_tree_logprob(
     ignore_topo: bool = False,
     verbose: bool = True,
 ):
-    if verbose:
-        print(f"TOPO ONLY: {topo_only}")
+    # if verbose:
+    #     print(f"TOPO ONLY: {topo_only}")
 
     dists, _, _, ignored_nodes, n_leaves, node_count = batch_init_NJ(
         distances, rooted=True

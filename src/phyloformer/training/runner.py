@@ -165,6 +165,8 @@ def run_training(args):
         "precision": args.precision,
         **trainer_hardware_args,
     }
+    if args.max_steps is not None:
+        trainer_args["max_steps"] = args.max_steps
 
     # Run profiler for 30 steps
     if args.profile:

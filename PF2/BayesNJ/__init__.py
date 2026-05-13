@@ -6,4 +6,3 @@ from .core import (
     batch_soft_nj,
     batch_tree_probability_with_merges,
 )
-

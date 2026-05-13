@@ -236,7 +236,7 @@ def build_callbacks(args, identifier, VAL_CHECK_STEPS):
             filename="{epoch}-{step}-{val_loss:.4f}-{train_loss:.4f}",
             save_top_k=-1,  # Keep all checkpoints
             save_last=True,  # Add symbolic link to point to last checkpoint
-            every_n_train_steps=VAL_CHECK_STEPS * args.accumulate_grad_batches,
+            every_n_train_steps=VAL_CHECK_STEPS,
             save_on_train_epoch_end=False,  # Save after validation so the value is correct in filename
         )
     ]

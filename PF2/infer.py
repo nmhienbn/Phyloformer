@@ -25,6 +25,8 @@ KEY_RENAMER = {
     "use_unambiguous_order": "use_bilinear_embedder",
 }
 
+QUIET = os.environ.get("PF2_QUIET", "").strip().lower() in {"1", "true", "yes", "on"}
+
 
 def vec_to_mat(preds, n):
     batch_size, _ = preds.shape
@@ -88,6 +90,12 @@ def load_model(ckpt, device):
     return model
 
 
+def write_model_summary(model, outdir):
+    Path(outdir).mkdir(parents=True, exist_ok=True)
+    with open(os.path.join(outdir, "model.txt"), "w", encoding="utf-8") as f:
+        f.write(f"{model}\n")
+
+
 def write_dm(pred_dm, ids, outdir, stem):
     phylip = mat_to_phylip(pred_dm, ids)
     with open(os.path.join(outdir, f"{stem}.phy"), "w") as matfile:
@@ -113,7 +121,7 @@ def sample_trees_with_gamma(dm, msa, model, ids, outdir, stem, nsamples, verbose
             merges, brlens, *_ = batch_sample_trees(
                 model, msa, dm, use_max_proba=False, verbose=verbose
             )
-            tree_newick = merges_to_tree(merges.squeeze(), brlens.squeeze(), ids)
+            tree_newick = merges_to_tree(merges[0], brlens[0], ids)
             treesfile.write(tree_newick + "\n")
 
 
@@ -125,7 +133,7 @@ def sample_max_with_gamma(dm, msa, model, ids, outdir, stem, save_splits, verbos
         use_max_proba=True,
         verbose=verbose,
     )
-    tree_newick = merges_to_tree(merges.squeeze(), brlens.squeeze(), ids)
+    tree_newick = merges_to_tree(merges[0], brlens[0], ids)
     with open(os.path.join(outdir, f"{stem}.nwk"), "w") as treefile:
         treefile.write(tree_newick)
 
@@ -157,7 +165,7 @@ def process_alns(
 
     model.eval()
     with torch.no_grad():
-        for msapath in tqdm(glob(f"{msadir}/*fa") + glob(f"{msadir}/*fasta")):
+        for msapath in tqdm(glob(f"{msadir}/*fa") + glob(f"{msadir}/*fasta"), disable=QUIET):
             stem = Path(msapath).stem
 
             # Initialize timing if needed
@@ -284,9 +292,8 @@ def main():
         model = load_model(ckpt, device)
         model.eval()
 
-        print(model)
-
         os.makedirs(outroot)
+        write_model_summary(model, outroot)
         if args.save_splits:
             os.makedirs(os.path.join(outroot, "splits"))
         process_alns(
@@ -316,6 +323,7 @@ def main():
             ckpt = torch.load(ckpts.extractfile(member), map_location=device)
             model = load_model(ckpt, device)
             model.eval()
+            write_model_summary(model, outdir)
 
             process_alns(
                 msadir,
