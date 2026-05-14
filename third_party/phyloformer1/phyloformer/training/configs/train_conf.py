@@ -96,54 +96,41 @@ def build_train_config(parser: ArgumentParser) -> None:
         choices=[
             "mae",
             "mre",
-            "quartet_siamese",
-            "quartet_softmax",
-            "quartet_mre",
-            "quartet_siamese_mre",
-            "quartet_push_close",
+            "quartet_close",
+            "quartet_push",
+            "quartet_combined",
         ],
         help=(
             "Training loss. Use 'mae' for PFBase pretraining and "
-            "'mre', 'quartet_siamese', 'quartet_softmax', 'quartet_mre', "
-            "'quartet_siamese_mre', or 'quartet_push_close' "
+            "'mre', 'quartet_close', 'quartet_push', or 'quartet_combined' "
             "for fine-tuning."
         ),
     )
     train_grp.add_argument(
-        "--quartet-softmax-temperature",
+        "--quartet-close-sigma",
         default=1.0,
         type=float,
         help=(
-            "Temperature parameter for QuartetSoftmaxLoss. "
-            "Used only when --loss quartet_softmax."
+            "Sigma term for the quartet close loss. "
+            "Used only when --loss quartet_close."
         ),
     )
     train_grp.add_argument(
-        "--quartet-sigma",
-        default=1.0,
-        type=float,
-        help=(
-            "Sigma term for Quartet Loss. "
-            "Used only when --loss quartet_siamese, quartet_softmax, "
-            "or quartet_siamese_mre."
-        ),
-    )
-    train_grp.add_argument(
-        "--quartet-mre-lambda",
+        "--quartet-push-lambda",
         default=0.5,
         type=float,
         help=(
-            "Weight of quartet ranking term in quartet_mre loss "
+            "Weight of quartet push term in quartet_push loss "
             "(loss = MRE + lambda * quartet_term)."
         ),
     )
     train_grp.add_argument(
-        "--quartet-mre-margin",
+        "--quartet-push-margin",
         default=0.05,
         type=float,
         help=(
-            "Margin used by quartet ranking term in quartet_mre loss. "
-            "Used only when --loss quartet_mre."
+            "Margin used by the quartet push term. "
+            "Used only when --loss quartet_push."
         ),
     )
     train_grp.add_argument(
@@ -152,25 +139,24 @@ def build_train_config(parser: ArgumentParser) -> None:
         type=int,
         help=(
             "Number of random quartets sampled per batch when using "
-            "--loss quartet_siamese, quartet_softmax, quartet_mre, "
-            "quartet_siamese_mre, or quartet_push_close."
+            "--loss quartet_close, quartet_push, or quartet_combined."
         ),
     )
     train_grp.add_argument(
-        "--quartet-lambda-q",
+        "--quartet-combined-lambda",
         default=1.0,
         type=float,
         help=(
-            "Weight of additivity term in quartet_push_close loss "
+            "Weight of combined quartet term in quartet_combined loss "
             "(loss = MRE + lambda_q * additivity)."
         ),
     )
     train_grp.add_argument(
-        "--quartet-margin",
+        "--quartet-combined-margin",
         default=0.05,
         type=float,
         help=(
-            "Margin used by quartet_push_close additivity term. "
-            "Used only when --loss quartet_push_close."
+            "Margin used by the quartet combined term. "
+            "Used only when --loss quartet_combined."
         ),
     )

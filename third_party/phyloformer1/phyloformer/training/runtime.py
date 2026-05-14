@@ -6,11 +6,9 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
 from phyloformer.losses import (
-    QuartetMRELoss,
-    QuartetPushCloseMRELoss,
-    QuartetSiameseLoss,
-    QuartetSiameseMRELoss,
-    QuartetSoftmaxLoss,
+    QuartetCloseLoss,
+    QuartetCombinedLoss,
+    QuartetPushLoss,
 )
 from phyloformer.data import (
     precompute_alignment_cache,
@@ -148,59 +146,37 @@ def _build_mre_loss(_args):
     return MRELoss(), "MRE"
 
 
-def _build_quartet_siamese_loss(args):
-    criterion = QuartetSiameseLoss(
-        sigma=args.quartet_sigma,
+def _build_quartet_close_loss(args):
+    criterion = QuartetCloseLoss(
+        sigma=args.quartet_close_sigma,
         num_quartets=args.quartet_num_samples,
     )
-    loss_tag = f"QSIAM_S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
+    loss_tag = f"QCLOSE_S{args.quartet_close_sigma:g}_Q{args.quartet_num_samples}"
     return criterion, loss_tag
 
 
-def _build_quartet_softmax_loss(args):
-    criterion = QuartetSoftmaxLoss(
-        temperature=args.quartet_softmax_temperature,
-        sigma=args.quartet_sigma,
+def _build_quartet_push_loss(args):
+    criterion = QuartetPushLoss(
+        lambda_q=args.quartet_push_lambda,
+        margin=args.quartet_push_margin,
         num_quartets=args.quartet_num_samples,
     )
     loss_tag = (
-        f"QSOFT_T{args.quartet_softmax_temperature:g}_"
-        f"S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
+        f"QPUSH_L{args.quartet_push_lambda:g}_"
+        f"M{args.quartet_push_margin:g}_Q{args.quartet_num_samples}"
     )
     return criterion, loss_tag
 
 
-def _build_quartet_mre_loss(args):
-    criterion = QuartetMRELoss(
-        lambda_q=args.quartet_mre_lambda,
-        margin=args.quartet_mre_margin,
+def _build_quartet_combined_loss(args):
+    criterion = QuartetCombinedLoss(
+        lambda_q=args.quartet_combined_lambda,
+        margin=args.quartet_combined_margin,
         num_quartets=args.quartet_num_samples,
     )
     loss_tag = (
-        f"QMRE_L{args.quartet_mre_lambda:g}_"
-        f"M{args.quartet_mre_margin:g}_Q{args.quartet_num_samples}"
-    )
-    return criterion, loss_tag
-
-
-def _build_quartet_siamese_mre_loss(args):
-    criterion = QuartetSiameseMRELoss(
-        sigma=args.quartet_sigma,
-        num_quartets=args.quartet_num_samples,
-    )
-    loss_tag = f"QSIAM_MRE_S{args.quartet_sigma:g}_Q{args.quartet_num_samples}"
-    return criterion, loss_tag
-
-
-def _build_quartet_push_close_loss(args):
-    criterion = QuartetPushCloseMRELoss(
-        lambda_q=args.quartet_lambda_q,
-        margin=args.quartet_margin,
-        num_quartets=args.quartet_num_samples,
-    )
-    loss_tag = (
-        f"QPUSH_L{args.quartet_lambda_q:g}_"
-        f"M{args.quartet_margin:g}_Q{args.quartet_num_samples}"
+        f"QCOMB_L{args.quartet_combined_lambda:g}_"
+        f"M{args.quartet_combined_margin:g}_Q{args.quartet_num_samples}"
     )
     return criterion, loss_tag
 
@@ -208,11 +184,9 @@ def _build_quartet_push_close_loss(args):
 LOSS_BUILDERS = {
     "mae": _build_mae_loss,
     "mre": _build_mre_loss,
-    "quartet_siamese": _build_quartet_siamese_loss,
-    "quartet_softmax": _build_quartet_softmax_loss,
-    "quartet_mre": _build_quartet_mre_loss,
-    "quartet_siamese_mre": _build_quartet_siamese_mre_loss,
-    "quartet_push_close": _build_quartet_push_close_loss,
+    "quartet_close": _build_quartet_close_loss,
+    "quartet_push": _build_quartet_push_loss,
+    "quartet_combined": _build_quartet_combined_loss,
 }
 
 

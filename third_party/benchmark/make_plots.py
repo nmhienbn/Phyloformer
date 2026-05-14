@@ -1477,21 +1477,21 @@ if __name__ == "__main__":
         # Norm RF for all aln lengths
         pbar.set_description("Plotting LG+GC topological metrics")
         fig = build_LGGC_normRF(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_rf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/combined_LGGC_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # KF score for all aln lengths
         fig = build_LGGC_KFscore(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_kf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/combined_LGGC_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # wRF score for all aln lengths
         fig = build_LGGC_wRF(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_wrf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/combined_LGGC_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1501,21 +1501,21 @@ if __name__ == "__main__":
 
         # Single RF 500 length lGGC
         fig = single_LGGC_normRF(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_rf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Single KF 500 length LGGC
         fig = single_LGGC_KFscore(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_kf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Single wRF 500 length LGGC
         fig = single_LGGC_wRF(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_wrf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1538,21 +1538,21 @@ if __name__ == "__main__":
         # Fine tune RF
         pbar.set_description("Plotting Cherry+Pastek topological metrics")
         fig = cherry_pastek_normRF(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_rf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/cherry_pastek_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune KF
         fig = cherry_pastek_KFscore(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_kf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/cherry_pastek_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune wRF
         fig = cherry_pastek_wRF(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_wrf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/cherry_pastek_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1560,7 +1560,7 @@ if __name__ == "__main__":
         # Topological metrics for Cherry + Pastek
         figsize = (4.5 * mult + 1, 4.5 * mult + 1)
         fig = cherry_pastek_topos(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_topos.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/cherry_pastek_topos.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1571,21 +1571,21 @@ if __name__ == "__main__":
         # Fine tune RF
         pbar.set_description("Plotting fine-tuned topological metrics")
         fig = fine_tuned_normRF(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_rf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune KF
         fig = fine_tuned_KFscore(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_kf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune wRF
         fig = fine_tuned_wRF(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_wrf.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1612,14 +1612,14 @@ if __name__ == "__main__":
         # Memory usage 500 length LGGC
         pbar.set_description("Plotting LGGC execution metadata")
         fig = single_LGGC_elapsed(grouped_lggc, figsize, load_time)
-        plt.savefig("./figures/LGGC_500_elapsed.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Memory usage 500 length LGGC
         fig = single_LGGC_mem(grouped_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mem.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_mem.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1648,14 +1648,14 @@ if __name__ == "__main__":
         # Fine tune elapsed
         pbar.set_description("Plotting fine-tuned execution metadata")
         fig = fine_tuned_elapsed(grouped_gaps, grouped_cherry, grouped_pastek, figsize)
-        plt.savefig("./figures/fine_tune_elapsed.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune mem
         fig = fine_tuned_mem(grouped_gaps, grouped_cherry, grouped_pastek, figsize)
-        plt.savefig("./figures/fine_tune_mem.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_mem.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1672,7 +1672,7 @@ if __name__ == "__main__":
             ),
             figsize,
         )
-        plt.savefig("./figures/elapsed.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1687,7 +1687,7 @@ if __name__ == "__main__":
             figsize,
             load_time
         )
-        plt.savefig("./figures/elapsed_pf_loads.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/elapsed_pf_loads.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1722,14 +1722,14 @@ if __name__ == "__main__":
         # MRE for aln 500 LG+GC
         pbar.set_description("Plotting LGGC distance results")
         fig = single_LGGC_mre(dists_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mre.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # MAE for aln 500 LG+GC
         fig = single_LGGC_mae(dists_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mae.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1748,42 +1748,42 @@ if __name__ == "__main__":
 
         # Distance percentile vs MAE
         single_LGGC_quantiles_mae(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mae.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_quantile_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Distance percentile vs MRE
         single_LGGC_quantiles_mre(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mre.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_quantile_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Distance percentile vs MRE
         single_LGGC_quantiles_mrd(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mrd.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_quantile_mrd.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MAE
         single_LGGC_binned_mae(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mae.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_binned_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MRE
         single_LGGC_binned_mre(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mre.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_binned_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MRE
         single_LGGC_binned_mrd(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mrd.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_binned_mrd.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1807,7 +1807,7 @@ if __name__ == "__main__":
         ax.set_ylabel("Density")
         ax.set_xlabel("Pairwise Distance")
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-        plt.savefig("./figures/pairwise_dist_testset.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/pairwise_dist_testset.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1815,7 +1815,7 @@ if __name__ == "__main__":
         fig = base_vs_ft(
             lggc[lggc["length"] == 500], dists_lggc[dists_lggc["length"] == 500], (9, 8)
         )
-        plt.savefig("./figures/base_vs_mre.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/base_vs_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1839,7 +1839,7 @@ if __name__ == "__main__":
 
         pbar.set_description("Plotting fine-tuned distance results")
         fig = fine_tuned_mae(dists_gaps, dists_cherry, dists_pastek, figsize)
-        plt.savefig("./figures/fine_tune_mae.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/fine_tune_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1847,7 +1847,7 @@ if __name__ == "__main__":
         figsize = (6.5, 6)
         pbar.set_description("Plotting Histograms on distances in LGGC")
         fig = hist_LGGC(dists_lggc[dists_lggc["length"] == 500], figsize)
-        plt.savefig("./figures/dist_hist_LGGC.png", dpi=150)
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/dist_hist_LGGC.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1855,14 +1855,14 @@ if __name__ == "__main__":
         # figsize = (10.5, 15)
         pbar.set_description("Plotting Histograms on distances in Pastek")
         fig = hist_cherry_4x4(dists_cherry, figsize)
-        plt.savefig("./figures/dist_hist_cherry.png", dpi=150)
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/dist_hist_cherry.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         pbar.set_description("Plotting Histograms on distances in Pastek")
         fig = hist_pastek_4x4(dists_pastek, figsize)
-        plt.savefig("./figures/dist_hist_pastek.png", dpi=150)
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/dist_hist_pastek.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1881,7 +1881,7 @@ if __name__ == "__main__":
             figsize,
             LGGC_METHODS_NO_HAMMING,
         )
-        plt.savefig("./figures/lggc_all.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/lggc_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1893,7 +1893,7 @@ if __name__ == "__main__":
             figsize,
             sorted(sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_Cherry+FastME"]),
         )
-        plt.savefig("./figures/cherry_all.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/cherry_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1905,7 +1905,7 @@ if __name__ == "__main__":
             figsize,
             sorted(sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_SelReg+FastME"]),
         )
-        plt.savefig("./figures/pastek_all.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/pastek_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1921,7 +1921,7 @@ if __name__ == "__main__":
                 + ["PF_Indel+FastME"]
             ),
         )
-        plt.savefig("./figures/gaps_all.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/gaps_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1966,13 +1966,13 @@ if __name__ == "__main__":
 
         # 50 tips plot
         fig = misspecification(means_50, figsize, datasets, pf_order)
-        plt.savefig("./figures/misspecification_50tips.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/misspecification_50tips.pdf")
         plt.clf()
         plt.cla()
 
         # All tips plot
         fig = misspecification(means_alltips, figsize, datasets, pf_order)
-        plt.savefig("./figures/misspecification_alltips.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/misspecification_alltips.pdf")
         plt.clf()
         plt.cla()
 
@@ -1989,7 +1989,7 @@ if __name__ == "__main__":
 
         # Norm RF for all aln lengths
         fig = build_LGGC_lik(lik_lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_lik.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/combined_LGGC_lik.pdf")
         plt.clf()
         plt.cla()
 
@@ -1998,7 +1998,7 @@ if __name__ == "__main__":
 
         # Single RF 500 length lGGC
         fig = single_LGGC_lik(lik_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_lik.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/LGGC_500_lik.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2017,8 +2017,8 @@ if __name__ == "__main__":
         sub = brlens[(brlens["length"] == 500) & (brlens["marker"] == "PF+FastME")]
 
         fig = plot_brlen_dists(sub, (10, 4))
-        plt.savefig("./figures/branch_length_errors.pdf")
-        plt.savefig("./figures/branch_length_errors.svg")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/branch_length_errors.pdf")
+        plt.savefig("./figures/paper_pfbase/legacy_core_exports/branch_length_errors.svg")
         plt.clf()
         plt.cla()
         pbar.update(1)

@@ -60,18 +60,16 @@ def validate_args(args):
         raise ValueError("--accumulate-grad-batches must be >= 1.")
     if args.quartet_num_samples < 1:
         raise ValueError("--quartet-num-samples must be >= 1.")
-    if args.loss in {"quartet_siamese", "quartet_softmax", "quartet_siamese_mre"} and args.quartet_sigma <= 0:
-        raise ValueError("--quartet-sigma must be > 0.")
-    if args.loss == "quartet_softmax" and args.quartet_softmax_temperature <= 0:
-        raise ValueError("--quartet-softmax-temperature must be > 0.")
-    if args.loss == "quartet_mre" and args.quartet_mre_lambda < 0:
-        raise ValueError("--quartet-mre-lambda must be >= 0.")
-    if args.loss == "quartet_mre" and args.quartet_mre_margin < 0:
-        raise ValueError("--quartet-mre-margin must be >= 0.")
-    if args.loss == "quartet_push_close" and args.quartet_lambda_q < 0:
-        raise ValueError("--quartet-lambda-q must be >= 0.")
-    if args.loss == "quartet_push_close" and args.quartet_margin < 0:
-        raise ValueError("--quartet-margin must be >= 0.")
+    if args.loss == "quartet_close" and args.quartet_close_sigma <= 0:
+        raise ValueError("--quartet-close-sigma must be > 0.")
+    if args.loss == "quartet_push" and args.quartet_push_lambda < 0:
+        raise ValueError("--quartet-push-lambda must be >= 0.")
+    if args.loss == "quartet_push" and args.quartet_push_margin < 0:
+        raise ValueError("--quartet-push-margin must be >= 0.")
+    if args.loss == "quartet_combined" and args.quartet_combined_lambda < 0:
+        raise ValueError("--quartet-combined-lambda must be >= 0.")
+    if args.loss == "quartet_combined" and args.quartet_combined_margin < 0:
+        raise ValueError("--quartet-combined-margin must be >= 0.")
     if args.n_seqs < 4:
         raise ValueError("--n-seqs must be >= 4.")
 

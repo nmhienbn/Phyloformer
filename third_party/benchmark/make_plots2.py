@@ -53,7 +53,7 @@ MARKERS = {
     "PF_Base+FastME": "^",
     "PF_CPU+FastME": "^",
     "Hamming+FastME": "v",
-    "PF_QSIAM+FastME": "D",
+    "PF_QCLOSE+FastME": "D",
 }
 
 LINESTYLES = {
@@ -68,7 +68,7 @@ LINESTYLES = {
     "PF_Base+FastME": "--",
     "PF_CPU+FastME": ":",
     "Hamming+FastME": ":",
-    "PF_QSIAM+FastME": "-.",
+    "PF_QCLOSE+FastME": "-.",
 }
 
 LGGC_METHODS = sorted(
@@ -90,8 +90,8 @@ LGGC_METHODS_NO_HAMMING = sorted(
     ]
 )
 
-LGGC_METHODS_NO_HAMMING_PLUS_QSIAM = sorted(
-    LGGC_METHODS_NO_HAMMING + ["PF_QSIAM+FastME"]
+LGGC_METHODS_NO_HAMMING_PLUS_QCLOSE = sorted(
+    LGGC_METHODS_NO_HAMMING + ["PF_QCLOSE+FastME"]
 )
 
 FINE_TUNE_METHODS = sorted(
@@ -129,10 +129,10 @@ STYLES["PF_Base+FastME"] = (
     STYLES["PF_Base+FastME"][1],
     STYLES["PF_Base+FastME"][2],
 )
-STYLES["PF_QSIAM+FastME"] = (
+STYLES["PF_QCLOSE+FastME"] = (
     STYLES["PF+FastME"][0],
-    LINESTYLES["PF_QSIAM+FastME"],
-    MARKERS["PF_QSIAM+FastME"],
+    LINESTYLES["PF_QCLOSE+FastME"],
+    MARKERS["PF_QCLOSE+FastME"],
 )
 
 
@@ -141,6 +141,182 @@ def _register_external_style(method):
         return
     color = sns.color_palette("tab10", n_colors=len(STYLES) + 1)[-1]
     STYLES[method] = (color, "-.", "D")
+
+
+def _register_style_alias(method, template_method="PF_QCLOSE+FastME"):
+    if method in STYLES:
+        return
+    if template_method not in STYLES:
+        raise ValueError(f"Unknown template method style: {template_method}")
+    STYLES[method] = STYLES[template_method]
+
+
+def _slugify_label(label):
+    return re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+
+
+def _methods_with_new_model(label):
+    return sorted(LGGC_METHODS_NO_HAMMING + [label])
+
+
+def _normalize_repeatable_arg(values, default_value):
+    if values is None:
+        return [default_value]
+    if isinstance(values, str):
+        return [values]
+    cleaned = [v for v in values if v]
+    return cleaned if cleaned else [default_value]
+
+
+def _infer_dataset_key_from_path(path):
+    lower = str(path).lower()
+    if "final_test_set" in lower:
+        return "lggc"
+    if "lggc+gaps" in lower or "gaps" in lower:
+        return "gaps"
+    if "cherry" in lower:
+        return "cherry"
+    if "pastek" in lower:
+        return "pastek"
+    raise ValueError(f"Could not infer dataset from path: {path}")
+
+
+def _load_baseline_topology(dataset_key):
+    if dataset_key == "lggc":
+        return _load_lggc_topo_500("./data/topos_lggc.csv")
+
+    path_map = {
+        "gaps": "./data/topos_gaps.csv",
+        "cherry": "./data/topos_cherry.csv",
+        "pastek": "./data/topos_pastek.csv",
+    }
+    dataset_names = {
+        "gaps": "Indels",
+        "cherry": "Cherry",
+        "pastek": "SelReg",
+    }
+    topo = pd.read_csv(path_map[dataset_key]).copy()
+    topo["marker"] = topo["marker"].apply(lambda x: RENAMER.get(x, x))
+    topo["dataset"] = dataset_names[dataset_key]
+    topo["length"] = 500
+    if "n_tips" not in topo.columns:
+        topo["n_tips"] = topo["id"].map(_extract_n_tips)
+    return topo
+
+
+def _load_baseline_distances(dataset_key, sample_frac):
+    if dataset_key == "lggc":
+        dists = pd.read_csv("./data/dists_lggc.csv").sample(
+            frac=sample_frac, random_state=42
+        )
+        dists["n_tips"] = dists["id"].apply(lambda x: x.split("_")[1]).astype(int)
+        dists["length"] = dists["id"].apply(lambda x: x.split("_")[-1]).astype(int)
+        dists["dataset"] = "LG+GC"
+        dists = dists[dists["length"] == 500]
+    else:
+        path_map = {
+            "gaps": "./data/dists_gaps.csv",
+            "cherry": "./data/dists_cherry.csv",
+            "pastek": "./data/dists_pastek.csv",
+        }
+        dataset_names = {
+            "gaps": "Indels",
+            "cherry": "Cherry",
+            "pastek": "SelReg",
+        }
+        dists = pd.read_csv(path_map[dataset_key]).sample(
+            frac=sample_frac, random_state=42
+        )
+        dists["n_tips"] = dists["id"].apply(lambda x: x.split("_")[1]).astype(int)
+        dists["length"] = 500
+        dists["dataset"] = dataset_names[dataset_key]
+
+    dists["MAE"] = (dists["ref_dist"] - dists["cmp_dist"]).abs()
+    dists["MRE"] = dists["MAE"] / dists["ref_dist"]
+    dists["marker"] = dists["marker"].apply(lambda x: RENAMER.get(x, x))
+    return dists
+
+
+def _dataset_methods_with_new_model(dataset_key, new_model_label):
+    if dataset_key == "lggc":
+        return _methods_with_new_model(new_model_label)
+    if dataset_key == "cherry":
+        return sorted(
+            sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_Cherry+FastME", new_model_label]
+        )
+    if dataset_key == "pastek":
+        return sorted(
+            sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_SelReg+FastME", new_model_label]
+        )
+    if dataset_key == "gaps":
+        return sorted(
+            [x for x in LGGC_METHODS_NO_HAMMING if x != "PF+FastME"]
+            + ["PF_Indel+FastME", new_model_label]
+        )
+    raise ValueError(f"Unknown dataset key: {dataset_key}")
+
+
+def _plot_filename_prefix(dataset_key):
+    return {
+        "lggc": "lggc",
+        "gaps": "gaps",
+        "cherry": "cherry",
+        "pastek": "pastek",
+    }[dataset_key]
+
+
+def _load_new_model_results_by_dataset(
+    topo_paths,
+    dist_paths,
+    new_model_label,
+    sample_frac,
+    default_length=500,
+    skip_missing=False,
+):
+    results = {}
+    for topo_path, dist_path in zip(topo_paths, dist_paths):
+        dataset_key = _infer_dataset_key_from_path(topo_path)
+        if dataset_key in results:
+            raise ValueError(
+                f"Duplicate new-model dataset inferred from paths: {dataset_key}"
+            )
+        if dataset_key != _infer_dataset_key_from_path(dist_path):
+            raise ValueError(
+                f"Mismatched dataset between topo/dist paths: {topo_path} vs {dist_path}"
+            )
+        topo_path = Path(topo_path)
+        dist_path = Path(dist_path)
+        if not topo_path.exists():
+            if skip_missing:
+                continue
+            raise FileNotFoundError(f"Missing new-model topo file: {topo_path}")
+        if not dist_path.exists():
+            if skip_missing:
+                continue
+            raise FileNotFoundError(f"Missing new-model dist file: {dist_path}")
+        topo = _load_cmp_topo(topo_path, new_model_label, default_length=default_length)
+        dists = _load_cmp_dist_pairwise(
+            dist_path,
+            new_model_label,
+            sample_frac=sample_frac,
+            chunksize=1_000_000,
+            default_length=default_length,
+        )
+        dataset_name = {
+            "lggc": "LG+GC",
+            "gaps": "Indels",
+            "cherry": "Cherry",
+            "pastek": "SelReg",
+        }[dataset_key]
+        topo["dataset"] = dataset_name
+        dists["dataset"] = dataset_name
+        results[dataset_key] = {
+            "topo": topo,
+            "dists": dists,
+            "topo_path": topo_path,
+            "dist_path": dist_path,
+        }
+    return results
 
 
 # To add titles to legends
@@ -217,7 +393,7 @@ def _load_cmp_topo(path, marker, default_length=None):
     return df
 
 
-def _load_cmp_dist_tree(path, marker, chunksize=2_000_000):
+def _load_cmp_dist_tree(path, marker, chunksize=2_000_000, id_to_n_tips=None):
     sums = []
     for chunk in pd.read_csv(path, chunksize=chunksize):
         required = {"id", "ref_dist", "cmp_dist"}
@@ -225,7 +401,15 @@ def _load_cmp_dist_tree(path, marker, chunksize=2_000_000):
         if missing:
             raise ValueError(f"{path} missing columns: {sorted(missing)}")
         if "n_tips" not in chunk.columns:
-            chunk["n_tips"] = chunk["id"].map(_extract_n_tips)
+            if id_to_n_tips is not None:
+                chunk["n_tips"] = chunk["id"].map(id_to_n_tips)
+            missing_n_tips = chunk["n_tips"].isna() if "n_tips" in chunk.columns else None
+            if "n_tips" not in chunk.columns or missing_n_tips.any():
+                unresolved = chunk["n_tips"].isna() if "n_tips" in chunk.columns else None
+                if "n_tips" not in chunk.columns:
+                    chunk["n_tips"] = chunk["id"].map(_extract_n_tips)
+                else:
+                    chunk.loc[unresolved, "n_tips"] = chunk.loc[unresolved, "id"].map(_extract_n_tips)
         chunk["MAE"] = (chunk["ref_dist"] - chunk["cmp_dist"]).abs()
         chunk["MRE"] = np.where(
             chunk["ref_dist"] > 0, chunk["MAE"] / chunk["ref_dist"], np.nan
@@ -367,38 +551,40 @@ def _load_lggc_dist_tree_500(path, chunksize=2_000_000):
     return merged[["marker", "id", "n_tips", "MAE", "MRE"]]
 
 
-def generate_base_vs_mre_plus_qsiam(
-    output_pdf="./figures/base_vs_mre_plus_qsiam.pdf",
+def generate_base_vs_mre_plus_new_model(
+    output_pdf="./figures/pfbase_quartet_close/base_vs_mre_plus_qclose.pdf",
     lggc_topo_path="./data/topos_lggc.csv",
     lggc_dist_path="./data/dists_lggc.csv",
-    qsiam_topo_path="./runs/pfbase_quartet_siamese/eval_val_lggc/cmp_qsiam_topo.csv",
-    qsiam_dist_path="./runs/pfbase_quartet_siamese/eval_val_lggc/cmp_qsiam_dist.csv",
+    new_topo_path="./runs/pfbase_quartet_close/eval_val_lggc/cmp_quartet_close_topo.csv",
+    new_dist_path="./runs/pfbase_quartet_close/eval_val_lggc/cmp_quartet_close_dist.csv",
     dist_chunksize=2_000_000,
+    method_label="PF_QCLOSE+FastME",
 ):
     sns.set_context("notebook")
     sns.set_style("darkgrid")
 
-    if not Path(qsiam_topo_path).exists():
-        raise FileNotFoundError(f"Missing QSIAM topo file: {qsiam_topo_path}")
-    if not Path(qsiam_dist_path).exists():
-        raise FileNotFoundError(f"Missing QSIAM dist file: {qsiam_dist_path}")
+    if not Path(new_topo_path).exists():
+        raise FileNotFoundError(f"Missing new-model topo file: {new_topo_path}")
+    if not Path(new_dist_path).exists():
+        raise FileNotFoundError(f"Missing new-model dist file: {new_dist_path}")
 
     topo_lggc = _load_lggc_topo_500(lggc_topo_path)
     dist_lggc = _load_lggc_dist_tree_500(lggc_dist_path, chunksize=dist_chunksize)
 
-    qsiam_topo = _load_cmp_topo(qsiam_topo_path, "PF_QSIAM+FastME")
-    qsiam_dist = _load_cmp_dist_tree(
-        qsiam_dist_path, "PF_QSIAM+FastME", chunksize=dist_chunksize
+    _register_style_alias(method_label)
+    new_topo = _load_cmp_topo(new_topo_path, method_label)
+    new_dist = _load_cmp_dist_tree(
+        new_dist_path, method_label, chunksize=dist_chunksize
     )
 
-    topo_plus = pd.concat([topo_lggc, qsiam_topo], ignore_index=True)
-    dist_plus = pd.concat([dist_lggc, qsiam_dist], ignore_index=True)
+    topo_plus = pd.concat([topo_lggc, new_topo], ignore_index=True)
+    dist_plus = pd.concat([dist_lggc, new_dist], ignore_index=True)
 
     fig = base_vs_ft(
         topo_plus,
         dist_plus,
         (9, 8),
-        methods=["PF+FastME", "PF_Base+FastME", "PF_QSIAM+FastME"],
+        methods=["PF+FastME", "PF_Base+FastME", method_label],
     )
 
     output_pdf = Path(output_pdf)
@@ -435,7 +621,7 @@ def run_cmp_mode(cmp_topo_items, cmp_dist_items, outdir, dist_chunksize):
     if not common:
         raise ValueError(
             "No shared labels between --cmp-topo and --cmp-dist. "
-            "Use LABEL=path for both sides (e.g. PF=... PF_QSIAM=...)."
+            "Use LABEL=path for both sides (e.g. PF=... PF_QCLOSE=...)."
         )
 
     outdir = Path(outdir)
@@ -445,10 +631,22 @@ def run_cmp_mode(cmp_topo_items, cmp_dist_items, outdir, dist_chunksize):
         [_load_cmp_topo(topo_paths[label], label) for label in common],
         ignore_index=True,
     )
+    topo_maps = {
+        label: (
+            topo_df[topo_df["marker"] == label]
+            .drop_duplicates(subset=["id"])
+            .set_index("id")["n_tips"]
+            .to_dict()
+        )
+        for label in common
+    }
     dist_tree = pd.concat(
         [
             _load_cmp_dist_tree(
-                dist_paths[label], label, chunksize=max(int(dist_chunksize), 1)
+                dist_paths[label],
+                label,
+                chunksize=max(int(dist_chunksize), 1),
+                id_to_n_tips=topo_maps.get(label),
             )
             for label in common
         ],
@@ -1834,6 +2032,18 @@ if __name__ == "__main__":
         help="Run full paper figure generation pipeline (slow).",
     )
     parser.add_argument(
+        "--new-only",
+        "--new-model-only",
+        dest="new_only",
+        action="store_true",
+        help="With --full: only generate comparison plots for the new model (skips legacy paper plots).",
+    )
+    parser.add_argument(
+        "--new-model-name",
+        default="PF_QCLOSE+FastME",
+        help="Legend label to use for the new model in plots.",
+    )
+    parser.add_argument(
         "--cmp-topo",
         action="append",
         default=[],
@@ -1847,7 +2057,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--outdir",
-        default="./figures/cmp",
+        default="./figures/paper_pfbase/cmp",
         help="Output directory for cmp mode.",
     )
     parser.add_argument(
@@ -1858,7 +2068,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--output-pdf",
-        default="./figures/base_vs_mre_plus_qsiam.pdf",
+        default="./figures/pfbase_quartet_close/base_vs_mre_plus_qclose.pdf",
         help="Output path for single-figure mode.",
     )
     parser.add_argument(
@@ -1872,14 +2082,20 @@ if __name__ == "__main__":
         help="Path to dists_lggc.csv for single-figure mode.",
     )
     parser.add_argument(
+        "--new-topo",
         "--qsiam-topo",
-        default="./runs/pfbase_quartet_siamese/eval_val_lggc/cmp_qsiam_topo.csv",
-        help="Path to cmp_qsiam_topo.csv for single-figure mode.",
+        dest="new_topo",
+        action="append",
+        default=None,
+        help="Path to new-model cmp_topo.csv. Repeatable in --full/--new-model-only mode.",
     )
     parser.add_argument(
+        "--new-dist",
         "--qsiam-dist",
-        default="./runs/pfbase_quartet_siamese/eval_val_lggc/cmp_qsiam_dist.csv",
-        help="Path to cmp_qsiam_dist.csv for single-figure mode.",
+        dest="new_dist",
+        action="append",
+        default=None,
+        help="Path to new-model cmp_dist.csv. Repeatable in --full/--new-model-only mode.",
     )
     parser.add_argument(
         "--external-topo",
@@ -1897,25 +2113,118 @@ if __name__ == "__main__":
         help="Method label for --external-topo/--external-dist in full mode.",
     )
     args, _ = parser.parse_known_args()
+    new_paths_explicit = args.new_topo is not None or args.new_dist is not None
+    new_topo_paths = _normalize_repeatable_arg(
+        args.new_topo,
+        "./runs/pfbase_quartet_close/eval_val_lggc/cmp_quartet_close_topo.csv",
+    )
+    new_dist_paths = _normalize_repeatable_arg(
+        args.new_dist,
+        "./runs/pfbase_quartet_close/eval_val_lggc/cmp_quartet_close_dist.csv",
+    )
+    if len(new_topo_paths) != len(new_dist_paths):
+        raise ValueError(
+            "--new-topo and --new-dist must be provided the same number of times"
+        )
     if args.cmp_topo or args.cmp_dist:
         run_cmp_mode(
             args.cmp_topo, args.cmp_dist, args.outdir, args.dist_chunksize
-        )
-        raise SystemExit(0)
-    if not args.full:
-        generate_base_vs_mre_plus_qsiam(
-            output_pdf=args.output_pdf,
-            lggc_topo_path=args.lggc_topo,
-            lggc_dist_path=args.lggc_dist,
-            qsiam_topo_path=args.qsiam_topo,
-            qsiam_dist_path=args.qsiam_dist,
-            dist_chunksize=args.dist_chunksize,
         )
         raise SystemExit(0)
 
     # Set general plotting options
     sns.set_context("notebook")
     sns.set_style("darkgrid")
+    new_model_label = args.new_model_name.strip() or "PF_QCLOSE+FastME"
+    _register_style_alias(new_model_label)
+    new_model_slug = _slugify_label(new_model_label)
+
+    if args.new_only:
+        outdir = Path(args.outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        label = outdir.name
+
+        SAMPLING_FRAC = 0.05
+        mult = 1.5
+        figsize = (4 * mult + 1, 3 * mult + 1)
+        figsize_all = (5 * 2 + 1, 3 * 2)
+        new_results = _load_new_model_results_by_dataset(
+            new_topo_paths,
+            new_dist_paths,
+            new_model_label,
+            sample_frac=SAMPLING_FRAC,
+        )
+
+        print(f"[new-only] Saving plots to {outdir}/")
+        if "lggc" in new_results:
+            lggc = _load_baseline_topology("lggc")
+            dists_lggc = _load_baseline_distances("lggc", SAMPLING_FRAC)
+            qsiam_topo = new_results["lggc"]["topo"]
+            qsiam_dists = new_results["lggc"]["dists"]
+            topo_plus = pd.concat([lggc, qsiam_topo], ignore_index=True)
+            dists_plus = pd.concat([dists_lggc, qsiam_dists], ignore_index=True)
+            methods_plus_new_model = _methods_with_new_model(new_model_label)
+
+            fig = base_vs_ft(
+                topo_plus,
+                dists_plus,
+                (9, 8),
+                methods=["PF+FastME", "PF_Base+FastME", new_model_label],
+            )
+            plt.savefig(outdir / f"{label}_base_vs_mre_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = single_LGGC_normRF(topo_plus, figsize, methods=methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_LGGC_500_rf_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = single_LGGC_KFscore(topo_plus, figsize, methods=methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_LGGC_500_kf_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = single_LGGC_wRF(topo_plus, figsize, methods=methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_LGGC_500_wrf_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = single_LGGC_mae(dists_plus, figsize, methods=methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_LGGC_500_mae_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = single_LGGC_mre(dists_plus, figsize, methods=methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_LGGC_500_mre_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+            fig = dataset_plot(topo_plus, dists_plus, figsize_all, methods_plus_new_model)
+            plt.savefig(outdir / f"{label}_lggc_all_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+        for dataset_key in ["gaps", "cherry", "pastek"]:
+            if dataset_key not in new_results:
+                continue
+            topo_base = _load_baseline_topology(dataset_key)
+            dist_base = _load_baseline_distances(dataset_key, SAMPLING_FRAC)
+            topo_plus = pd.concat([topo_base, new_results[dataset_key]["topo"]], ignore_index=True)
+            dists_plus = pd.concat([dist_base, new_results[dataset_key]["dists"]], ignore_index=True)
+            methods = _dataset_methods_with_new_model(dataset_key, new_model_label)
+            prefix = _plot_filename_prefix(dataset_key)
+            fig = dataset_plot(topo_plus, dists_plus, figsize_all, methods)
+            plt.savefig(outdir / f"{label}_{prefix}_all_plus_{new_model_slug}.pdf")
+            plt.clf(); plt.cla()
+
+        print(f"[new-only] Done. {len(list(outdir.glob(label + '_*.pdf')))} files written.")
+        raise SystemExit(0)
+
+    if not args.full:
+        generate_base_vs_mre_plus_new_model(
+            output_pdf=args.output_pdf,
+            lggc_topo_path=args.lggc_topo,
+            lggc_dist_path=args.lggc_dist,
+            new_topo_path=new_topo_paths[0],
+            new_dist_path=new_dist_paths[0],
+            dist_chunksize=args.dist_chunksize,
+            method_label=new_model_label,
+        )
+        raise SystemExit(0)
 
     with tqdm(bar_format="[{elapsed}] {desc}", maxinterval=1) as pbar:
         outdir = Path(args.outdir)
@@ -1941,21 +2250,21 @@ if __name__ == "__main__":
         # Norm RF for all aln lengths
         pbar.set_description("Plotting LG+GC topological metrics")
         fig = build_LGGC_normRF(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_rf.pdf")
+        plt.savefig(outdir / "combined_LGGC_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # KF score for all aln lengths
         fig = build_LGGC_KFscore(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_kf.pdf")
+        plt.savefig(outdir / "combined_LGGC_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # wRF score for all aln lengths
         fig = build_LGGC_wRF(lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_wrf.pdf")
+        plt.savefig(outdir / "combined_LGGC_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -1965,21 +2274,21 @@ if __name__ == "__main__":
 
         # Single RF 500 length lGGC
         fig = single_LGGC_normRF(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_rf.pdf")
+        plt.savefig(outdir / "LGGC_500_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Single KF 500 length LGGC
         fig = single_LGGC_KFscore(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_kf.pdf")
+        plt.savefig(outdir / "LGGC_500_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Single wRF 500 length LGGC
         fig = single_LGGC_wRF(lggc, figsize)
-        plt.savefig("./figures/LGGC_500_wrf.pdf")
+        plt.savefig(outdir / "LGGC_500_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2002,21 +2311,21 @@ if __name__ == "__main__":
         # Fine tune RF
         pbar.set_description("Plotting Cherry+Pastek topological metrics")
         fig = cherry_pastek_normRF(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_rf.pdf")
+        plt.savefig(outdir / "cherry_pastek_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune KF
         fig = cherry_pastek_KFscore(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_kf.pdf")
+        plt.savefig(outdir / "cherry_pastek_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune wRF
         fig = cherry_pastek_wRF(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_wrf.pdf")
+        plt.savefig(outdir / "cherry_pastek_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2024,7 +2333,7 @@ if __name__ == "__main__":
         # Topological metrics for Cherry + Pastek
         figsize = (4.5 * mult + 1, 4.5 * mult + 1)
         fig = cherry_pastek_topos(cherry, pastek, figsize)
-        plt.savefig("./figures/cherry_pastek_topos.pdf")
+        plt.savefig(outdir / "cherry_pastek_topos.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2035,21 +2344,21 @@ if __name__ == "__main__":
         # Fine tune RF
         pbar.set_description("Plotting fine-tuned topological metrics")
         fig = fine_tuned_normRF(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_rf.pdf")
+        plt.savefig(outdir / "fine_tune_rf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune KF
         fig = fine_tuned_KFscore(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_kf.pdf")
+        plt.savefig(outdir / "fine_tune_kf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune wRF
         fig = fine_tuned_wRF(gaps, cherry, pastek, figsize)
-        plt.savefig("./figures/fine_tune_wrf.pdf")
+        plt.savefig(outdir / "fine_tune_wrf.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2076,14 +2385,14 @@ if __name__ == "__main__":
         # Memory usage 500 length LGGC
         pbar.set_description("Plotting LGGC execution metadata")
         fig = single_LGGC_elapsed(grouped_lggc, figsize, load_time)
-        plt.savefig("./figures/LGGC_500_elapsed.pdf")
+        plt.savefig(outdir / "LGGC_500_elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Memory usage 500 length LGGC
         fig = single_LGGC_mem(grouped_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mem.pdf")
+        plt.savefig(outdir / "LGGC_500_mem.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2112,14 +2421,14 @@ if __name__ == "__main__":
         # Fine tune elapsed
         pbar.set_description("Plotting fine-tuned execution metadata")
         fig = fine_tuned_elapsed(grouped_gaps, grouped_cherry, grouped_pastek, figsize)
-        plt.savefig("./figures/fine_tune_elapsed.pdf")
+        plt.savefig(outdir / "fine_tune_elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Fine tune mem
         fig = fine_tuned_mem(grouped_gaps, grouped_cherry, grouped_pastek, figsize)
-        plt.savefig("./figures/fine_tune_mem.pdf")
+        plt.savefig(outdir / "fine_tune_mem.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2136,7 +2445,7 @@ if __name__ == "__main__":
             ),
             figsize,
         )
-        plt.savefig("./figures/elapsed.pdf")
+        plt.savefig(outdir / "elapsed.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2151,7 +2460,7 @@ if __name__ == "__main__":
             figsize,
             load_time
         )
-        plt.savefig("./figures/elapsed_pf_loads.pdf")
+        plt.savefig(outdir / "elapsed_pf_loads.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2186,14 +2495,14 @@ if __name__ == "__main__":
         # MRE for aln 500 LG+GC
         pbar.set_description("Plotting LGGC distance results")
         fig = single_LGGC_mre(dists_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mre.pdf")
+        plt.savefig(outdir / "LGGC_500_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # MAE for aln 500 LG+GC
         fig = single_LGGC_mae(dists_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_mae.pdf")
+        plt.savefig(outdir / "LGGC_500_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2212,42 +2521,42 @@ if __name__ == "__main__":
 
         # Distance percentile vs MAE
         single_LGGC_quantiles_mae(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mae.pdf")
+        plt.savefig(outdir / "LGGC_500_quantile_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Distance percentile vs MRE
         single_LGGC_quantiles_mre(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mre.pdf")
+        plt.savefig(outdir / "LGGC_500_quantile_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Distance percentile vs MRE
         single_LGGC_quantiles_mrd(sub, figsize)
-        plt.savefig("./figures/LGGC_500_quantile_mrd.pdf")
+        plt.savefig(outdir / "LGGC_500_quantile_mrd.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MAE
         single_LGGC_binned_mae(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mae.pdf")
+        plt.savefig(outdir / "LGGC_500_binned_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MRE
         single_LGGC_binned_mre(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mre.pdf")
+        plt.savefig(outdir / "LGGC_500_binned_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         # Binned Distance vs MRE
         single_LGGC_binned_mrd(sub, figsize)
-        plt.savefig("./figures/LGGC_500_binned_mrd.pdf")
+        plt.savefig(outdir / "LGGC_500_binned_mrd.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2271,7 +2580,7 @@ if __name__ == "__main__":
         ax.set_ylabel("Density")
         ax.set_xlabel("Pairwise Distance")
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-        plt.savefig("./figures/pairwise_dist_testset.pdf")
+        plt.savefig(outdir / "pairwise_dist_testset.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2279,31 +2588,28 @@ if __name__ == "__main__":
         fig = base_vs_ft(
             lggc[lggc["length"] == 500], dists_lggc[dists_lggc["length"] == 500], (9, 8)
         )
-        plt.savefig("./figures/base_vs_mre.pdf")
+        plt.savefig(outdir / "base_vs_mre.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
+        new_model_results = _load_new_model_results_by_dataset(
+            new_topo_paths,
+            new_dist_paths,
+            new_model_label,
+            sample_frac=SAMPLING_FRAC,
+            skip_missing=not new_paths_explicit,
+        )
         qsiam_topo = None
         qsiam_dists = None
-        qsiam_topo_path = Path(args.qsiam_topo)
-        qsiam_dist_path = Path(args.qsiam_dist)
-        if qsiam_topo_path.exists() and qsiam_dist_path.exists():
-            pbar.set_description("Parsing PF_QSIAM evaluation results")
-            qsiam_topo = _load_cmp_topo(
-                qsiam_topo_path, "PF_QSIAM+FastME", default_length=500
-            )
-            qsiam_dists = _load_cmp_dist_pairwise(
-                qsiam_dist_path,
-                "PF_QSIAM+FastME",
-                sample_frac=SAMPLING_FRAC,
-                chunksize=1_000_000,
-                default_length=500,
-            )
-            qsiam_dists["dataset"] = "LG+GC"
+        if "lggc" in new_model_results:
+            pbar.set_description(f"Parsing {new_model_label} evaluation results")
+            qsiam_topo = new_model_results["lggc"]["topo"]
+            qsiam_dists = new_model_results["lggc"]["dists"]
             pbar.update(1)
+            methods_plus_new_model = _methods_with_new_model(new_model_label)
 
-            pbar.set_description("Plotting LG+GC + PF_QSIAM figures")
+            pbar.set_description(f"Plotting LG+GC + {new_model_label} figures")
             topo_plus = pd.concat(
                 [lggc[lggc["length"] == 500], qsiam_topo], ignore_index=True
             )
@@ -2315,49 +2621,49 @@ if __name__ == "__main__":
                 topo_plus,
                 dists_plus,
                 (9, 8),
-                methods=["PF+FastME", "PF_Base+FastME", "PF_QSIAM+FastME"],
+                methods=["PF+FastME", "PF_Base+FastME", new_model_label],
             )
-            plt.savefig("./figures/base_vs_mre_plus_qsiam.pdf")
+            plt.savefig(outdir / f"base_vs_mre_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
 
             fig = single_LGGC_normRF(
-                topo_plus, figsize, methods=LGGC_METHODS_NO_HAMMING_PLUS_QSIAM
+                topo_plus, figsize, methods=methods_plus_new_model
             )
-            plt.savefig("./figures/LGGC_500_rf_plus_qsiam.pdf")
+            plt.savefig(outdir / f"LGGC_500_rf_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
 
             fig = single_LGGC_KFscore(
-                topo_plus, figsize, methods=LGGC_METHODS_NO_HAMMING_PLUS_QSIAM
+                topo_plus, figsize, methods=methods_plus_new_model
             )
-            plt.savefig("./figures/LGGC_500_kf_plus_qsiam.pdf")
+            plt.savefig(outdir / f"LGGC_500_kf_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
 
             fig = single_LGGC_wRF(
-                topo_plus, figsize, methods=LGGC_METHODS_NO_HAMMING_PLUS_QSIAM
+                topo_plus, figsize, methods=methods_plus_new_model
             )
-            plt.savefig("./figures/LGGC_500_wrf_plus_qsiam.pdf")
+            plt.savefig(outdir / f"LGGC_500_wrf_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
 
             fig = single_LGGC_mae(
-                dists_plus, figsize, methods=LGGC_METHODS_NO_HAMMING_PLUS_QSIAM
+                dists_plus, figsize, methods=methods_plus_new_model
             )
-            plt.savefig("./figures/LGGC_500_mae_plus_qsiam.pdf")
+            plt.savefig(outdir / f"LGGC_500_mae_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
 
             fig = single_LGGC_mre(
-                dists_plus, figsize, methods=LGGC_METHODS_NO_HAMMING_PLUS_QSIAM
+                dists_plus, figsize, methods=methods_plus_new_model
             )
-            plt.savefig("./figures/LGGC_500_mre_plus_qsiam.pdf")
+            plt.savefig(outdir / f"LGGC_500_mre_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
@@ -2464,7 +2770,7 @@ if __name__ == "__main__":
 
         pbar.set_description("Plotting fine-tuned distance results")
         fig = fine_tuned_mae(dists_gaps, dists_cherry, dists_pastek, figsize)
-        plt.savefig("./figures/fine_tune_mae.pdf")
+        plt.savefig(outdir / "fine_tune_mae.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2472,7 +2778,7 @@ if __name__ == "__main__":
         figsize = (6.5, 6)
         pbar.set_description("Plotting Histograms on distances in LGGC")
         fig = hist_LGGC(dists_lggc[dists_lggc["length"] == 500], figsize)
-        plt.savefig("./figures/dist_hist_LGGC.png", dpi=150)
+        plt.savefig(outdir / "dist_hist_LGGC.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2480,14 +2786,14 @@ if __name__ == "__main__":
         # figsize = (10.5, 15)
         pbar.set_description("Plotting Histograms on distances in Pastek")
         fig = hist_cherry_4x4(dists_cherry, figsize)
-        plt.savefig("./figures/dist_hist_cherry.png", dpi=150)
+        plt.savefig(outdir / "dist_hist_cherry.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         pbar.set_description("Plotting Histograms on distances in Pastek")
         fig = hist_pastek_4x4(dists_pastek, figsize)
-        plt.savefig("./figures/dist_hist_pastek.png", dpi=150)
+        plt.savefig(outdir / "dist_hist_pastek.png", dpi=150)
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2506,13 +2812,13 @@ if __name__ == "__main__":
             figsize,
             LGGC_METHODS_NO_HAMMING,
         )
-        plt.savefig("./figures/lggc_all.pdf")
+        plt.savefig(outdir / "lggc_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
 
         if qsiam_topo is not None and qsiam_dists is not None:
-            pbar.set_description("Plotting all metrics for LG+GC + PF_QSIAM")
+            pbar.set_description(f"Plotting all metrics for LG+GC + {new_model_label}")
             fig = dataset_plot(
                 pd.concat([lggc[lggc["length"] == 500], qsiam_topo], ignore_index=True),
                 pd.concat(
@@ -2520,9 +2826,9 @@ if __name__ == "__main__":
                     ignore_index=True,
                 ),
                 figsize,
-                LGGC_METHODS_NO_HAMMING_PLUS_QSIAM,
+                methods_plus_new_model,
             )
-            plt.savefig("./figures/lggc_all_plus_qsiam.pdf")
+            plt.savefig(outdir / f"lggc_all_plus_{new_model_slug}.pdf")
             plt.clf()
             plt.cla()
             pbar.update(1)
@@ -2553,7 +2859,7 @@ if __name__ == "__main__":
             figsize,
             sorted(sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_Cherry+FastME"]),
         )
-        plt.savefig("./figures/cherry_all.pdf")
+        plt.savefig(outdir / "cherry_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2565,7 +2871,7 @@ if __name__ == "__main__":
             figsize,
             sorted(sorted(["IQTree_LG+GC"] + FINE_TUNE_METHODS) + ["PF_SelReg+FastME"]),
         )
-        plt.savefig("./figures/pastek_all.pdf")
+        plt.savefig(outdir / "pastek_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2581,10 +2887,38 @@ if __name__ == "__main__":
                 + ["PF_Indel+FastME"]
             ),
         )
-        plt.savefig("./figures/gaps_all.pdf")
+        plt.savefig(outdir / "gaps_all.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
+
+        for dataset_key, topo_base, dist_base in [
+            ("cherry", cherry, dists_cherry),
+            ("pastek", pastek, dists_pastek),
+            ("gaps", gaps, dists_gaps),
+        ]:
+            if dataset_key not in new_model_results:
+                continue
+            prefix = _plot_filename_prefix(dataset_key)
+            pbar.set_description(
+                f"Plotting all metrics for {prefix} + {new_model_label}"
+            )
+            fig = dataset_plot(
+                pd.concat(
+                    [topo_base, new_model_results[dataset_key]["topo"]],
+                    ignore_index=True,
+                ),
+                pd.concat(
+                    [dist_base, new_model_results[dataset_key]["dists"]],
+                    ignore_index=True,
+                ),
+                figsize,
+                _dataset_methods_with_new_model(dataset_key, new_model_label),
+            )
+            plt.savefig(outdir / f"{prefix}_all_plus_{new_model_slug}.pdf")
+            plt.clf()
+            plt.cla()
+            pbar.update(1)
 
         # Model mis-specification plots
         PFS = ["PF+FastME", "PF_Indel+FastME", "PF_Cherry+FastME", "PF_SelReg+FastME"]
@@ -2626,13 +2960,13 @@ if __name__ == "__main__":
 
         # 50 tips plot
         fig = misspecification(means_50, figsize, datasets, pf_order)
-        plt.savefig("./figures/misspecification_50tips.pdf")
+        plt.savefig(outdir / "misspecification_50tips.pdf")
         plt.clf()
         plt.cla()
 
         # All tips plot
         fig = misspecification(means_alltips, figsize, datasets, pf_order)
-        plt.savefig("./figures/misspecification_alltips.pdf")
+        plt.savefig(outdir / "misspecification_alltips.pdf")
         plt.clf()
         plt.cla()
 
@@ -2649,7 +2983,7 @@ if __name__ == "__main__":
 
         # Norm RF for all aln lengths
         fig = build_LGGC_lik(lik_lggc, figsize)
-        plt.savefig("./figures/combined_LGGC_lik.pdf")
+        plt.savefig(outdir / "combined_LGGC_lik.pdf")
         plt.clf()
         plt.cla()
 
@@ -2658,7 +2992,7 @@ if __name__ == "__main__":
 
         # Single RF 500 length lGGC
         fig = single_LGGC_lik(lik_lggc, figsize)
-        plt.savefig("./figures/LGGC_500_lik.pdf")
+        plt.savefig(outdir / "LGGC_500_lik.pdf")
         plt.clf()
         plt.cla()
         pbar.update(1)
@@ -2677,8 +3011,8 @@ if __name__ == "__main__":
         sub = brlens[(brlens["length"] == 500) & (brlens["marker"] == "PF+FastME")]
 
         fig = plot_brlen_dists(sub, (10, 4))
-        plt.savefig("./figures/branch_length_errors.pdf")
-        plt.savefig("./figures/branch_length_errors.svg")
+        plt.savefig(outdir / "branch_length_errors.pdf")
+        plt.savefig(outdir / "branch_length_errors.svg")
         plt.clf()
         plt.cla()
         pbar.update(1)

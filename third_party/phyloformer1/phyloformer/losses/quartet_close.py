@@ -7,7 +7,6 @@ from typing import Optional
 import torch
 import torch.nn as nn
 
-
 def _ensure_2d(vec: torch.Tensor) -> torch.Tensor:
     if vec.ndim == 1:
         return vec.unsqueeze(0)
@@ -29,6 +28,9 @@ def _infer_num_leaves(num_pairs: int) -> int:
 
 
 def get_1d_index(i: torch.Tensor, j: torch.Tensor, num_leaves: int) -> torch.Tensor:
+    """
+    Map pair indices (i, j) to flattened upper-triangle index used by seq2pair.
+    """
     i_min = torch.minimum(i, j)
     j_max = torch.maximum(i, j)
     return (
@@ -44,18 +46,22 @@ def sample_random_quartets(
     num_leaves: int,
     num_quartets: int,
     device: torch.device,
-) -> torch.Tensor:
+) -> torch.Tensor:    
     return torch.rand((num_quartets, num_leaves), device=device).topk(4, dim=1).indices
 
 
-class QuartetSiameseMRELoss(nn.Module):
-    component_names = ("quartet_loss", "mre_loss")
+class QuartetCloseLoss(nn.Module):
+    component_names = ("quartet_close_loss", "mae_loss")
 
-    def __init__(self, sigma: float = 1.0, num_quartets: int = 50, eps: float = 1e-8):
+    def __init__(self, sigma: float = 1.0, num_quartets: int = 50):
+        """
+        sigma: weight for siamese MAE regularization.
+        num_quartets: number of random quartets sampled per batch.
+        """
         super().__init__()
         self.inv_sigma = 1.0 / float(sigma)
         self.num_quartets = num_quartets
-        self.eps = eps
+        self.mae = nn.L1Loss()
 
     def forward(
         self,
@@ -90,7 +96,7 @@ class QuartetSiameseMRELoss(nn.Module):
         a, b, c, d = quartets.unbind(dim=1)
         pair_i = torch.stack((a, c, a, b, a, b), dim=0)
         pair_j = torch.stack((b, d, c, d, d, c), dim=0)
-        pair_idx = get_1d_index(pair_i, pair_j, num_leaves)
+        pair_idx = get_1d_index(pair_i, pair_j, num_leaves)  # [6, num_quartets]
         flat_idx = pair_idx.reshape(-1)
 
         batch_size = y_pred_vec.shape[0]
@@ -103,22 +109,20 @@ class QuartetSiameseMRELoss(nn.Module):
 
         pred_sums = pred_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
-        min_idx = torch.argmin(true_sums, dim=1)
+        min_idx = torch.argmin(true_sums, dim=1)  # [batch, num_quartets]
 
         e_candidates = torch.stack(
             (
-                pred_sums[:, 1] - pred_sums[:, 2],
-                pred_sums[:, 0] - pred_sums[:, 2],
-                pred_sums[:, 0] - pred_sums[:, 1],
+                pred_sums[:, 1] - pred_sums[:, 2],  # min_idx == 0
+                pred_sums[:, 0] - pred_sums[:, 2],  # min_idx == 1
+                pred_sums[:, 0] - pred_sums[:, 1],  # min_idx == 2
             ),
             dim=1,
         )
         e = e_candidates.gather(1, min_idx.unsqueeze(1)).squeeze(1)
         e_loss = (e**2).mean()
+        
+        siam_loss = self.mae(pred_pairs, true_pairs)
+        loss = e_loss * self.inv_sigma + siam_loss
 
-        denom = true_pairs.clamp_min(self.eps)
-        mre_loss = (torch.abs(pred_pairs - true_pairs) / denom).mean()
-        loss = e_loss * self.inv_sigma + mre_loss
-
-        return loss, e_loss, mre_loss
-
+        return loss, e_loss, siam_loss

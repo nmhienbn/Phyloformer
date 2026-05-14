@@ -55,7 +55,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--method-name",
-        default="PF_QSIAM+FastME",
+        default="PF_QCLOSE+FastME",
         help="Method label passed to phylocompare via -m.",
     )
     parser.add_argument(
