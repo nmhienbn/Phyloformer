@@ -1,0 +1,2 @@
+split	n_msa	mean_num_sequences	median_num_sequences	mean_alignment_length	median_alignment_length	mean_gap_ratio	median_gap_ratio	mean_invariant_site_ratio	median_invariant_site_ratio	mean_informative_site_ratio	median_informative_site_ratio	top_best_models
+train	4315	18.7956	10	248.957	194	0.130893	0.0968468	0.175352	0.152542	0.518033	0.576177	LG+G:2160;LG+G+F:548;WAG+G:345;JTT+G:239;LG:184;WAG:173;WAG+G+F:106;JTT:102;JTT+G+F:88;cpREV+G:50

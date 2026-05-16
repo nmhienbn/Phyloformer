@@ -1,0 +1,5 @@
+metric	empirical_value	synthetic_value	pass_rel_tol
+q25	N/A	0.9085	N/A
+median	N/A	1.17	N/A
+q75	N/A	1.5226	N/A
+n	N/A	17098	N/A

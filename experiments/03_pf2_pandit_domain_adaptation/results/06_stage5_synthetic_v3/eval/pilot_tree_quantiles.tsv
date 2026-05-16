@@ -1,0 +1,5 @@
+metric	empirical_total_tree_length	synthetic_target_total_tree_length	pass_rel_tol
+q25	N/A	4.500877794	N/A
+median	N/A	8.3922286831	N/A
+q75	N/A	17.3443760749	N/A
+n	N/A	19990	N/A

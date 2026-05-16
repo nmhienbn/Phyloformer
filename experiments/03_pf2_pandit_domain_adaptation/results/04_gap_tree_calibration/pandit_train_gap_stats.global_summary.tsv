@@ -1,0 +1,2 @@
+n_msa	mean_gap_ratio	median_gap_ratio	mean_gappy_column_ratio_any	median_gappy_column_ratio_any	mean_gappy_column_ratio_25	median_gappy_column_ratio_25	mean_gappy_column_ratio_50	median_gappy_column_ratio_50	mean_gap_run_length	median_gap_run_length	median_p90_gap_run_length	gap_bucket_q_low	gap_bucket_q_high
+4315	0.130892975886	0.0968468468468	0.25340573777	0.207317073171	0.169982235008	0.133196721311	0.135842190757	0.0982142857143	4.67426251417	2	7	0.0592369477912	0.143665158371

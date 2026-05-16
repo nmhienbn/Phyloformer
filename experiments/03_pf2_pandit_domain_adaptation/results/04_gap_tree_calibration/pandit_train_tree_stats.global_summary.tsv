@@ -1,0 +1,2 @@
+n_tree	mean_total_tree_length	median_total_tree_length	mean_branch_length	median_branch_length	mean_root_to_leaf_depth	median_root_to_leaf_depth	median_max_root_to_leaf_depth	tree_bucket_q_low	tree_bucket_q_high
+4315	16.2254260691	8.796833	0.529518159195	0.332696	1.88698758299	1.592303	2.931168	5.951082	13.683736

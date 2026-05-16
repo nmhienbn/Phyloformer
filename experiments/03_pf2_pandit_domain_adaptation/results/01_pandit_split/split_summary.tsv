@@ -1,0 +1,4 @@
+split	n_msa	mean_num_sequences	median_num_sequences	mean_alignment_length	median_alignment_length
+train	4315	18.7956	10	248.957	194
+val	926	18.9514	10	246.603	191.5
+test	924	19.4199	11	243.799	185

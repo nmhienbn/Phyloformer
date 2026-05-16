@@ -1,0 +1,19 @@
+{
+  "alignment_length": 500,
+  "alignment_simulator": "src/alisim.py",
+  "cpu_threads": 4,
+  "iqtree_bin": "bin/bin_linux/iqtree_2.2.0",
+  "limit": null,
+  "max_attempts": 200,
+  "multisize_taxa": "10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170",
+  "n_msas": 5000,
+  "n_taxa": 50,
+  "no_indels": false,
+  "outdir": "runs/pandit_domain_adaptation/stage3_pf2_native_pca_size_matched",
+  "profile_tsv": "runs/pandit_domain_adaptation/stage2_profiles/pandit_train_profile.tsv",
+  "sampling": "pf2-native-size-matched",
+  "seed": 42,
+  "skip_existing": true,
+  "tree_simulator": "src/simulate_trees.py",
+  "verbose_simulator": false
+}
