@@ -1,0 +1,5 @@
+loss,label,status,source_run,n_alignments,mean_rf,mean_nrf,mean_wrf,mean_kf,mean_mae,mean_mre,raw_dist_copied
+pf_base,PFBase,complete,data/final_test_set/results,15000,10.168133,0.092287,1.910558,0.430566,0.160470,0.089488,False
+quartet_close,Close,complete,experiments/02_pf1_quartet_loss/results/quartet_close/eval_final_test_set_qsiam,15000,10.102133,0.090839,1.974564,0.449022,0.162043,0.087111,True
+quartet_combined,Combined,complete,experiments/02_pf1_quartet_loss/results/quartet_combined/eval_final_test_set_qsiam,15000,10.456133,0.093297,2.162423,0.487081,0.166058,0.088599,True
+quartet_push,Push,complete,experiments/02_pf1_quartet_loss/results/quartet_push/eval_final_test_set,15000,9.760000,0.088409,1.871265,0.425817,0.161394,0.087261,True
