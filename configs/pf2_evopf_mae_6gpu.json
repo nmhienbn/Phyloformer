@@ -1,0 +1,36 @@
+{
+  "command": "train",
+  "evopf": true,
+  "l1_loss": true,
+  "embed_dim": 128,
+  "pair_dim": 256,
+  "n_blocks": 12,
+  "n_heads": 4,
+  "epochs": 30,
+  "warmup": 1000,
+  "learning_rate": 0.0005,
+  "weight_decay": 0.0,
+  "seed": 1337,
+  "project": "PF2_PAPER",
+  "project_root": "runs",
+  "log_every": 50,
+  "validate_every": 1000,
+  "batch_size": [16],
+  "train_trees": [
+    "data/paper_pfbase/train/trees"
+  ],
+  "train_alns": [
+    "data/paper_pfbase/train/msas"
+  ],
+  "val_trees": [
+    "data/paper_pfbase/val/trees"
+  ],
+  "val_alns": [
+    "data/paper_pfbase/val/msas"
+  ],
+  "cache_root": "data/paper_pfbase/cache",
+  "wandb_sync": true,
+  "mixed_precision": false,
+  "early_stop_patience": 5,
+  "early_stop_min_delta": 0.0001
+}

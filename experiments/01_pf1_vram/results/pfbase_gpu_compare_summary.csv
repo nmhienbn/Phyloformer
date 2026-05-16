@@ -1,0 +1,5 @@
+label,source_run,n_alignments,mean_rf,mean_nrf,mean_wrf,mean_kf,mean_mae,mean_mre
+PF+FastME,data/topos_lggc.csv + data/dists_lggc.csv,15000,9.818667,0.088918,1.869415,0.427193,0.162877,0.088036
+PF_Base+FastME,data/topos_lggc.csv + data/dists_lggc.csv,15000,10.168133,0.092287,1.910558,0.430566,0.160470,0.089488
+6GPU 20GB,runs/pfbase_26GPU/eval_final_test_set_qsiam,15000,10.011067,0.090711,1.869162,0.420397,0.156411,0.085571
+1 GPU 80GB,runs/pfbase_1GPU/eval_final_test_set,15000,10.311333,0.092585,1.931824,0.428216,0.154493,0.087997
