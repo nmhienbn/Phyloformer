@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Sinh protein superalignment từ tập cây PF1-style.
+Sinh protein big alignment từ tập cây PF1-style.
 
 Mỗi replicate (= 1 cây):
   - Sinh gene liên tiếp với gene_len ~ lognormal (clip [100, 4500]) cho tới khi đủ target_sites
   - Model: LG+G8, alpha sample từ HOGENOM empirical
-  - Concatenate thành 1 superalignment, kiểm tra duplicate ở cấp superalignment
+  - Concatenate thành 1 big alignment, kiểm tra duplicate ở cấp big alignment
   - Ghi partition.tsv và meta.json
 """
 
@@ -99,11 +99,11 @@ def concatenate_genes(gene_fas, gene_lens, out_fa):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simulate protein superalignments with true trees")
+    parser = argparse.ArgumentParser(description="Simulate protein big alignments with true trees")
     parser.add_argument("--trees", required=True, help="Directory of .nwk tree files")
     parser.add_argument("--outdir", required=True, help="Output directory for replicates")
     parser.add_argument("--target-sites", type=int, required=True,
-                        help="Target total sites per superalignment (e.g. 30000 for 30k)")
+                        help="Target total sites per big alignment (e.g. 30000 for 30k)")
     parser.add_argument("--iqtree", default="iqtree2", help="Path to iqtree2 binary")
     parser.add_argument("--processes", type=int, default=1, help="Threads for AliSim per gene")
     parser.add_argument("--max-attempts", type=int, default=20,
@@ -187,13 +187,13 @@ def main():
             tqdm.write(f"[ERROR] rep_{idx:03d}: no genes generated, skipping")
             continue
 
-        # Concatenate → super.fa
-        super_fa = rep_dir / "super.fa"
-        concatenate_genes(gene_fas, gene_lens_actual, str(super_fa))
+        # Concatenate → big.fa
+        big_fa = rep_dir / "big.fa"
+        concatenate_genes(gene_fas, gene_lens_actual, str(big_fa))
 
-        # Kiểm tra duplicate ở cấp superalignment (warn only — rất khó xảy ra với alignment dài)
-        if has_duplicates(str(super_fa)):
-            tqdm.write(f"[WARN] rep_{idx:03d}: superalignment has duplicate sequences")
+        # Kiểm tra duplicate ở cấp big alignment (warn only — rất khó xảy ra với alignment dài)
+        if has_duplicates(str(big_fa)):
+            tqdm.write(f"[WARN] rep_{idx:03d}: big alignment has duplicate sequences")
 
         # Partition table
         part_tsv = rep_dir / "partition.tsv"
@@ -204,7 +204,7 @@ def main():
                                    ["gene_id", "start", "end", "model", "gamma", "alpha", "gene_len"]) + "\n")
 
         # Meta
-        n_taxa = sum(1 for _ in SeqIO.parse(str(super_fa), "fasta"))
+        n_taxa = sum(1 for _ in SeqIO.parse(str(big_fa), "fasta"))
         gene_lens_list = [r["gene_len"] for r in partition]
         meta = {
             "tree": str(treefile.resolve()),
