@@ -1,0 +1,66 @@
+
+2010-01-31  Rahul Suri  <rsuri@cs.utexas.edu>
+
+	* AUTHORS: added my info here
+
+	* ChangeLog: added this section
+
+	* setup.py: changed package name to "newick_modified", version to 
+          "1.3.1"
+
+	* newick/lexer.py: LexerError class now extends Exception to be 
+        raiseable (line 24)
+
+	* newick/lexer.py: Lexer class's read_token method now prints the 
+        offending token (line 83)
+
+        * newick/parser.py: ParserError class now extends Exception to be 
+        raiseable (line 10)
+
+        * newick/parser.py: taxon identifiers are now canonicalized to 
+        have spaces rather than underscores (lines 93-94)
+
+        * newick/tree.py: added set_leaf_identifier method (line 116) and 
+        added it to the property call (line 124)
+
+        * newick/tree.py: modified Leaf class's __repr__ method to 
+        surround instance's identifier with single-quotation marks only if 
+        the identifier contains spaces (lines 120-123)
+
+2008-09-30  Thomas Mailund  <mailund@birc.au.dk>
+
+	* newick/treetest.py: moved unit tests here.
+
+	* newick/parsertest.py: added extensive testing of the parser. 
+
+	* newick/lexer.py, newick/lexertest.py: Moved unit tests to the
+	lexer module, and updated them to use the unittest library.
+
+	* Removed id as a variable name (it is a builtin function in Python).
+
+2006-04-25  Thomas Mailund  <mailund@stats.ox.ac.uk>
+
+	* newick/tree.py: Added properties for extracting leaves and
+	leaves' ids from trees.
+
+	* newick/__init__.py: Major cleanup in the code and refactoring of
+	the modules.
+
+2003-10-04  Thomas Mailund  <mailund@birc.dk>
+
+	* setup.py: moved to using distutils for make distributions
+	(rather than shell scripts)
+
+	* tree.py (TreeBuilder.new_leaf): Handle special case of singleton
+	trees.
+
+	* __init__.py (Parser.parse_leaf): added method for handling
+	leaves.
+
+	* __init__.py (Parser.parse_edge): handle empty labels, either on
+	the form of "_" or actually blank names.
+
+2003-10-03  Thomas Mailund  <mailund@birc.dk>
+
+	* tree.py (TreeVisitor): Added visitor pattern.
+

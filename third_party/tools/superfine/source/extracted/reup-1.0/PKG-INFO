@@ -1,0 +1,20 @@
+Metadata-Version: 1.1
+Name: reup
+Version: 1.0
+Summary: Refinement of Unresolved Phylogenies.
+Home-page: http://www.cs.utexas.edu/~phylo/software/superfine
+Author: Rahul Suri
+Author-email: rsuri@cs.utexas.edu
+License: General Public License (GPL)
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Environment :: Console
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: GNU General Public License (GPL)
+Classifier: Natural Language :: English
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Requires: spruce (>= 1.0)
+Provides: reup
