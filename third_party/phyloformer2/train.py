@@ -1370,6 +1370,13 @@ def main():
     resumer = subparsers.add_parser(name="resume", description="Resume a training run")
     resumer.add_argument("checkpoint")
     resumer.add_argument(
+        "-E",
+        "--epochs",
+        type=int,
+        default=None,
+        help="Override checkpoint total epoch target on resume. This is the final epoch count, not additional epochs.",
+    )
+    resumer.add_argument(
         "--early-stop-patience",
         type=int,
         default=None,
@@ -1488,6 +1495,8 @@ def main():
     elif args.command == "resume":
         ckpt = torch.load(args.checkpoint, map_location="cpu")
         hparams = dict(ckpt["hparams"])
+        if args.epochs is not None:
+            hparams["epochs"] = args.epochs
         if args.early_stop_patience is not None:
             hparams["early_stop_patience"] = (
                 None if args.early_stop_patience < 0 else args.early_stop_patience

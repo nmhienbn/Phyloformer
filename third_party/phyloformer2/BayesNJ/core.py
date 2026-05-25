@@ -2317,25 +2317,40 @@ class DistributedSameSizeSampler(DistributedSampler):
         self.start_iter = step
 
     def __iter__(self):
-        sampler = SameSizeBatchSampler(
+        sampler = list(SameSizeBatchSampler(
             self.dataset,
             base_batch_size=self.base_batch_size,
             base_size=self.base_size,
             shuffle=self.shuffle,
             seed=self.seed + self.epoch,
-            indices=list(super().__iter__()),
-        )
-        sampler.set_starting_step(self.start_iter)
-        return iter(sampler)
+        ))
+
+        if self.drop_last and len(sampler) % self.num_replicas != 0:
+            total_size = len(sampler) - len(sampler) % self.num_replicas
+            sampler = sampler[:total_size]
+        else:
+            total_size = math.ceil(len(sampler) / self.num_replicas) * self.num_replicas
+            padding_size = total_size - len(sampler)
+            if padding_size <= len(sampler):
+                sampler += sampler[:padding_size]
+            else:
+                sampler += (sampler * math.ceil(padding_size / len(sampler)))[
+                    :padding_size
+                ]
+
+        sampler = sampler[self.rank : total_size : self.num_replicas]
+        return iter(sampler[self.start_iter :])
 
     def __len__(self):
-        return len(
+        sampler_len = len(
             SameSizeBatchSampler(
                 self.dataset,
                 base_batch_size=self.base_batch_size,
                 base_size=self.base_size,
                 shuffle=self.shuffle,
                 seed=self.seed + self.epoch,
-                indices=list(super().__iter__()),
             )
         )
+        if self.drop_last:
+            return sampler_len // self.num_replicas
+        return math.ceil(sampler_len / self.num_replicas)

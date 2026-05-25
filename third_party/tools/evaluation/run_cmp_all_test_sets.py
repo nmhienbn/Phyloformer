@@ -94,8 +94,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parents[3]
-    plot_script = repo_root / "experiments" / "share" / "benchmark" / "make_plots2.py"
+    repo_root = Path(__file__).resolve().parents[2]
+    plot_script = repo_root / "third_party" / "benchmark" / "make_plots2.py"
     run_root = (repo_root / args.run_root).resolve()
     out_root = (repo_root / args.out_root).resolve()
     out_root.mkdir(parents=True, exist_ok=True)
