@@ -1,0 +1,134 @@
+{
+  "empirical_gap_summary": [
+    {
+      "gap_bucket": "low-gap",
+      "gap_bucket_q_high": "0.143665158371",
+      "gap_bucket_q_low": "0.0592369477912",
+      "mean_gap_ratio": "0.0279226074324",
+      "mean_gap_run_length": "2.05261583049",
+      "mean_gappy_column_ratio_25": "0.0402706626743",
+      "mean_gappy_column_ratio_50": "0.0260486614841",
+      "mean_gappy_column_ratio_any": "0.074508875478",
+      "median_gap_ratio": "0.0277777777778",
+      "median_gap_run_length": "1",
+      "median_gappy_column_ratio_25": "0.0376407337128",
+      "median_gappy_column_ratio_50": "0.0246913580247",
+      "median_gappy_column_ratio_any": "0.0645161290323",
+      "median_p90_gap_run_length": "3",
+      "n_msa": "1438"
+    },
+    {
+      "gap_bucket": "mid-gap",
+      "gap_bucket_q_high": "0.143665158371",
+      "gap_bucket_q_low": "0.0592369477912",
+      "mean_gap_ratio": "0.0982104063188",
+      "mean_gap_run_length": "3.92357734166",
+      "mean_gappy_column_ratio_25": "0.138002101438",
+      "mean_gappy_column_ratio_50": "0.10046173157",
+      "mean_gappy_column_ratio_any": "0.214789095351",
+      "median_gap_ratio": "0.0968468468468",
+      "median_gap_run_length": "2",
+      "median_gappy_column_ratio_25": "0.132743362832",
+      "median_gappy_column_ratio_50": "0.0983606557377",
+      "median_gappy_column_ratio_any": "0.204714640199",
+      "median_p90_gap_run_length": "7",
+      "n_msa": "1439"
+    },
+    {
+      "gap_bucket": "high-gap",
+      "gap_bucket_q_high": "0.143665158371",
+      "gap_bucket_q_low": "0.0592369477912",
+      "mean_gap_ratio": "0.266568641701",
+      "mean_gap_run_length": "8.04711640454",
+      "mean_gappy_column_ratio_25": "0.331696180226",
+      "mean_gappy_column_ratio_50": "0.281040783151",
+      "mean_gappy_column_ratio_any": "0.470946096893",
+      "median_gap_ratio": "0.230391196683",
+      "median_gap_run_length": "3",
+      "median_gappy_column_ratio_25": "0.301057164524",
+      "median_gappy_column_ratio_50": "0.244897959184",
+      "median_gappy_column_ratio_any": "0.441060676239",
+      "median_p90_gap_run_length": "14",
+      "n_msa": "1438"
+    }
+  ],
+  "empirical_top_models": [
+    {
+      "count": "2160",
+      "fitted_model": "LG+G4"
+    },
+    {
+      "count": "548",
+      "fitted_model": "LG+F+G4"
+    },
+    {
+      "count": "345",
+      "fitted_model": "WAG+G4"
+    },
+    {
+      "count": "239",
+      "fitted_model": "JTT+G4"
+    }
+  ],
+  "n_synthetic": 199918,
+  "synthetic_gap_summary": [
+    {
+      "gap_bucket": "low-gap",
+      "mean_gap_ratio": "0.0365595377329",
+      "mean_gappy_column_ratio_any": "0.0724501301606",
+      "mean_median_gap_run_length": "1.61041707284",
+      "mean_p90_gap_run_length": "2.91105445493",
+      "median_gap_ratio": "0.025939177102",
+      "median_gappy_column_ratio_any": "0.0542635658915",
+      "median_median_gap_run_length": "1.5",
+      "median_p90_gap_run_length": "3",
+      "n_msa": "66679"
+    },
+    {
+      "gap_bucket": "mid-gap",
+      "mean_gap_ratio": "0.104603876603",
+      "mean_gappy_column_ratio_any": "0.200620836569",
+      "mean_median_gap_run_length": "1.69112445628",
+      "mean_p90_gap_run_length": "4.13885853614",
+      "median_gap_ratio": "0.0851553509781",
+      "median_gappy_column_ratio_any": "0.169082125604",
+      "median_median_gap_run_length": "2",
+      "median_p90_gap_run_length": "4",
+      "n_msa": "66441"
+    },
+    {
+      "gap_bucket": "high-gap",
+      "mean_gap_ratio": "0.30417571478",
+      "mean_gappy_column_ratio_any": "0.515498681938",
+      "mean_median_gap_run_length": "2.71016347795",
+      "mean_p90_gap_run_length": "8.89819605377",
+      "median_gap_ratio": "0.26742239016",
+      "median_gappy_column_ratio_any": "0.493597940849",
+      "median_median_gap_run_length": "3",
+      "median_p90_gap_run_length": "8",
+      "n_msa": "66798"
+    }
+  ],
+  "synthetic_top_models": [
+    {
+      "count": "100113",
+      "fraction": "0.500770315829",
+      "model": "LG+G4"
+    },
+    {
+      "count": "25362",
+      "fraction": "0.126862013426",
+      "model": "LG+F+G4"
+    },
+    {
+      "count": "16187",
+      "fraction": "0.0809681969608",
+      "model": "WAG+G4"
+    },
+    {
+      "count": "11027",
+      "fraction": "0.055157614622",
+      "model": "JTT+G4"
+    }
+  ]
+}

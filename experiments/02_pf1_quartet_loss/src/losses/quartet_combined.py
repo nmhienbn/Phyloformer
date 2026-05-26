@@ -84,7 +84,7 @@ class QuartetCombinedLoss(nn.Module):
         batch_size = y_pred_vec.shape[0]
 
         # ==========================================
-        # 1. TRÍCH XUẤT QUARTET VÀ TÍNH 3 TỔNG CHÉO
+        # 1. Sampling Quartet
         # ==========================================
         quartets = sample_random_quartets(
             num_leaves=num_leaves,
@@ -104,28 +104,22 @@ class QuartetCombinedLoss(nn.Module):
             batch_size, 6, self.num_quartets
         )
 
-        # pred_sums / true_sums shape: [batch, 3, num_quartets]
         pred_sums = pred_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         
-        # Tìm topology thật (index có tổng khoảng cách nhỏ nhất trên ma trận thực tế)
         min_idx = torch.argmin(true_sums, dim=1) # [batch, num_quartets]
 
         # ==========================================
-        # 2. BÓC TÁCH CÁC TỔNG (S_true và S_cross)
+        # 2. Caculate Additivity Loss Components (S1, S2, S3)
         # ==========================================
-        # S3: Tổng dự đoán ứng với topology thật (Tương đương S3 trong ICML)
         S3 = pred_sums.gather(1, min_idx.unsqueeze(1)).squeeze(1) # [batch, num_quartets]
 
-        # Lọc lấy 2 tổng chéo còn lại (S1 và S2)
         mask = torch.ones_like(pred_sums, dtype=torch.bool)
         mask.scatter_(1, min_idx.unsqueeze(1), False)
         
-        # Permute để nhóm các phần tử của cùng 1 quartet lại gần nhau trong bộ nhớ trước khi reshape
         pred_sums_perm = pred_sums.permute(0, 2, 1) # [batch, num_quartets, 3]
         mask_perm = mask.permute(0, 2, 1)           # [batch, num_quartets, 3]
         
-        # Rút 2 tổng chéo và gán thành S_cross1, S_cross2
         cross_sums = pred_sums_perm[mask_perm].reshape(batch_size, self.num_quartets, 2)
         S_cross1 = cross_sums[:, :, 0] # [batch, num_quartets]
         S_cross2 = cross_sums[:, :, 1] # [batch, num_quartets]
@@ -133,24 +127,21 @@ class QuartetCombinedLoss(nn.Module):
         # ==========================================
         # 3. ICML ADDITIVITY LOSS (L_close + L_push)
         # ==========================================
-        # L_close: Ép 2 tổng lớn nhất phải tiệm cận bằng nhau
         L_close = torch.abs(S_cross1 - S_cross2)
 
-        # L_push: Đẩy tổng thật ra xa trung bình 2 tổng chéo một khoảng margin
         S_cross_avg = (S_cross1 + S_cross2) / 2.0
         L_push = F.relu(S3 - S_cross_avg + self.margin)
 
         additivity_loss = (L_close + L_push).mean()
 
         # ==========================================
-        # 4. GLOBAL MRE (DEVIATION LOSS)
+        # 4. GLOBAL MAE (DEVIATION LOSS)
         # ==========================================
-        # Tính sai số tương đối trên toàn bộ cây thay vì chỉ trên mẫu
         denom = y_true_vec.clamp_min(self.eps)
         mre_loss = (torch.abs(y_pred_vec - y_true_vec) / denom).mean()
         
         # ==========================================
-        # 5. TỔNG HỢP LOSS
+        # 5. TOTAL LOSS
         # ==========================================
         loss = mre_loss + self.lambda_q * additivity_loss
 

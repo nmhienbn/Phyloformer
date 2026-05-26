@@ -6,8 +6,8 @@ Hiện tại những lúc cần đo VRAM bao gồm:
 - `PF1` lúc `train`
 - `PF2_MAE/evoPF` lúc `infer`
 - `PF2_MAE/evoPF` lúc `train`
-- `BayesNJ` trong `third_party/phyloformer2` lúc `infer`
-- `BayesNJ` trong `third_party/phyloformer2` lúc `train`
+- `PF2_BayesNJ` trong `third_party/phyloformer2` lúc `infer`
+- `PF2_BayesNJ` trong `third_party/phyloformer2` lúc `train`
 
 Ý tưởng: script sẽ sinh MSA synthetic với kích thước (#sequences, sequence_length), chạy model, rồi chạy `nvidia-smi` theo PID để lấy GPU RSS thực tế. Ngoài ra script cũng tính toán của mức sử dụng GPU của pytorch với `torch.cuda.max_memory_allocated()` và `torch.cuda.max_memory_reserved()` để đối chiếu.
 
@@ -65,8 +65,8 @@ python experiments/01_pf1_vram/src/measure_pf_memory.py \
 
 Mặc định sử dụng hai checkpoint để check:
 
-- PF1 checkpoint: [`pretrained_models/pf_base.ckpt`](../../../pretrained_models/pf_base.ckpt)
-- PF2 checkpoint: [`third_party/phyloformer2/pretrained/pf2.tch`](../../../third_party/phyloformer2/pretrained/pf2.tch)
+- PF1 checkpoint: [`models/phyloformer1/pf_base.ckpt`](../../../models/phyloformer1/pf_base.ckpt)
+- PF2 checkpoint: [`models/phyloformer2/pf2.tch`](../../../models/phyloformer2/pf2.tch)
 
 Kết quả bao gồm `memory_grid_matrix.csv` là ma trận `số sequence` x `độ dài`
 Để replicate được hình trong bài, sử dụng:

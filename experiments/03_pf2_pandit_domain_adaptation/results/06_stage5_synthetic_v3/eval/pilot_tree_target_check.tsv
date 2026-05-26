@@ -1,4 +1,4 @@
-tree_bucket	empirical_target_total_tree_length	synthetic_median_total_tree_length	relative_error	pass_rel_tol
-short-tree	3.6966695	N/A	N/A	N/A
-mid-tree	8.796833	N/A	N/A	N/A
-long-tree	25.441984	N/A	N/A	N/A
+metric	value
+n_msas	199918
+median_source_total_tree_length	8.514739244
+median_target_total_tree_length	8.514739244

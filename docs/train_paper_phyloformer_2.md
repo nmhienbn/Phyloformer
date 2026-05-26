@@ -51,7 +51,7 @@ Chạy bằng file config JSON:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
-python tools/paper_pfbase/run_pf2_from_json.py \
+python third_party/tools/inference/run_pf2_from_json.py \
   configs/pf2_evopf_mae_4gpu.json
 ```
 
@@ -136,7 +136,7 @@ python third_party/phyloformer2/train.py train \
 Checkpoint pretrained tương ứng trong repo:
 
 ```text
-third_party/phyloformer2/pretrained/pf2_base.tch
+models/phyloformer2/pf2_base.tch
 ```
 
 ## Fine-Tune PF2 Multi-Size
@@ -158,7 +158,7 @@ done
 
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 python third_party/phyloformer2/train.py finetune \
-  third_party/phyloformer2/pretrained/pf2_base.tch \
+  models/phyloformer2/pf2_base.tch \
   --batch-size 40 \
   --base-batch-size 40 \
   --epochs 30 \

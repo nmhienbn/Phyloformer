@@ -25,16 +25,16 @@ last.ckpt -> .phy -> .nwk -> cmp_pf1_topo/dist.csv
 
 - Setting checkpoint, tên model lưu và tên model trong plot:
     ```bash
-    CKPT="runs/pfbase_quartet_mre/checkpoints_LR_0.0001_O_Adam_L_QMRE_L0.2_M0.05_Q2000_E_4_BS_1_ACC_12_NB_6_NH_4_HD_64_D_0.0_W3000/last.ckpt"
-    MODEL_NAME="pfbase_quartet_mre"
-    PLOT_MODEL_NAME="PF_PUSH+FastME"
+    CKPT="models/phyloformer1/pf.ckpt"
+    MODEL_NAME="pfbase"
+    PLOT_MODEL_NAME="PF+FastME"
     BIN="./bin/bin_linux"
     ```
 
 - Chạy toàn bộ test set:
     ```bash
     TOTAL_START=$(date +%s)
-    for D in data/final_test_set; do
+    for D in data/final_test_set data/LGGC+gaps data/cherry_test_data data/pastek_test_data; do
         NAME=$(basename "$D")
         OUT="runs/$MODEL_NAME/eval_${NAME}"
         mkdir -p "$OUT/mats" "$OUT/trees"
@@ -42,7 +42,7 @@ last.ckpt -> .phy -> .nwk -> cmp_pf1_topo/dist.csv
 
         CUDA_VISIBLE_DEVICES=7 python third_party/phyloformer1/infer_alns.py "$CKPT" "$D/alignments" -o "$OUT/mats"
 
-        python third_party/benchmark/run_fastme_compare.py \
+        python third_party/tools/inference/run_fastme_compare.py \
           --bin-dir "$BIN" \
           --mats-dir "$OUT/mats" \
           --trees-dir "$OUT/trees" \
@@ -60,7 +60,7 @@ last.ckpt -> .phy -> .nwk -> cmp_pf1_topo/dist.csv
 
 - Plot cần chú ý truyền `--new-dist`/`--new-topo` của những bộ cần benchmark:
     ```bash
-    python third_party/benchmark/make_plots2.py \
+    python third_party/tools/plots/make_plots2.py \
     --new-model-only \
     --new-model-name "$PLOT_MODEL_NAME" \
     --new-topo "runs/$MODEL_NAME/eval_final_test_set/cmp_pf1_topo.csv" \
@@ -77,7 +77,7 @@ last.ckpt -> .phy -> .nwk -> cmp_pf1_topo/dist.csv
 # Chạy PF2_MAE: evoPF + FastME
 
 ```bash
-EVO_CKPT="runs/PF2_PAPER/20260321-223929-tan-dry-woodlouse/checkpoints/best_val_loss.ckpt"
+EVO_CKPT="models/phyloformer2/pf2.tch"
 MODEL_NAME="evopf"
 PLOT_MODEL_NAME="evoPF"
 BIN="./bin/bin_linux"
@@ -110,7 +110,7 @@ BIN="./bin/bin_linux"
             continue
         fi
 
-        python third_party/benchmark/run_fastme_compare.py \
+        python third_party/tools/inference/run_fastme_compare.py \
           --bin-dir "$BIN" \
           --mats-dir "$OUT/mats" \
           --trees-dir "$OUT/trees" \
@@ -129,7 +129,7 @@ BIN="./bin/bin_linux"
 
 - Plot cho PF2: evoPF + FastME
     ```bash
-    python third_party/benchmark/make_plots2.py \
+    python third_party/tools/plots/make_plots2.py \
       --new-model-only \
       --new-model-name "$PLOT_MODEL_NAME" \
       --new-topo "runs/$MODEL_NAME/eval_final_test_set/cmp_evopf_topo.csv" \

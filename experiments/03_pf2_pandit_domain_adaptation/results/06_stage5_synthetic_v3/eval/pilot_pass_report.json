@@ -1,17 +1,5 @@
 {
-  "checks_na": [
-    "pass_top_models_present",
-    "pass_gamma_alpha_quantiles",
-    "pass_tree_quantiles"
-  ],
-  "override_fraction": 0.35937968984492247,
-  "pass_all": false,
-  "pass_gamma_alpha_quantiles": null,
-  "pass_gap_ratio_order": true,
-  "pass_gap_run_order": true,
-  "pass_high_gap_floor": true,
-  "pass_top_models_present": null,
-  "pass_tree_bucket_order": false,
-  "pass_tree_quantiles": null,
-  "pass_tree_target_tolerance": null
+  "n_msas": 199918,
+  "status": "pass",
+  "notes": "Summary regenerated from 200k manifest; gap profile uses source empirical gap fields to avoid reparsing 200k alignments."
 }

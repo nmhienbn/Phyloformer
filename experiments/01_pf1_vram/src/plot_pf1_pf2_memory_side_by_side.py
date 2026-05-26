@@ -8,6 +8,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import ListedColormap
 
 
 def load_matrix_csv(path: Path) -> tuple[list[int], list[int], np.ndarray]:
@@ -35,6 +36,18 @@ def save_matrix_csv(path: Path, seqs: list[int], lengths: list[int], data: np.nd
             writer.writerow(
                 [n] + [f"{x:.6f}" if not math.isnan(x) else "" for x in data[i]]
             )
+
+
+def memory_cmap() -> ListedColormap:
+    try:
+        base = plt.get_cmap("rocket")
+    except ValueError:
+        base = plt.get_cmap("magma")
+    colors = base(np.linspace(0, 1, 256))
+    colors[-32:] = colors[-33]
+    cmap = ListedColormap(colors, name=f"{base.name}_readable_max")
+    cmap.set_bad(color="#d9d9e3")
+    return cmap
 
 
 def main() -> None:
@@ -89,12 +102,7 @@ def main() -> None:
         save_matrix_csv(Path(args.copy_pf2_csv), seqs2, lengths2, pf2)
 
     vmax = np.nanmax([np.nanmax(pf1), np.nanmax(pf2)])
-
-    try:
-        cmap = plt.get_cmap("rocket").copy()
-    except ValueError:
-        cmap = plt.get_cmap("magma").copy()
-    cmap.set_bad(color="#d9d9e3")
+    cmap = memory_cmap()
 
     fig, axes = plt.subplots(1, 2, figsize=(16, 7), constrained_layout=True)
     plots = [

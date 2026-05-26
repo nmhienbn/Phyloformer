@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from Bio import AlignIO
 
-from pf2_vram import derive_pf2_cap_length
+from third_party.tools.vram.pf2_vram import derive_pf2_cap_length
 
 GAP_CHARS = {"-", ".", "?"}
 DNA_CHARS = set("ACGTUN")

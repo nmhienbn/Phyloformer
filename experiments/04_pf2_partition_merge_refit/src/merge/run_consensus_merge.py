@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
 from Bio.Phylo.Newick import Clade, Tree
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+THIRD_PARTY_MERGE_DIR = REPO_ROOT / "third_party" / "tools" / "partition_merge"
+sys.path.insert(0, str(THIRD_PARTY_MERGE_DIR))
 
 from helper import (
     block_weight,

@@ -91,7 +91,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cpu-threads", type=int, default=4)
     parser.add_argument("--max-attempts", type=int, default=50)
     parser.add_argument("--memory-threshold-mib", type=float, default=70000)
-    parser.add_argument("--memory-checkpoint", default="third_party/phyloformer2/pretrained/pf2.tch")
+    parser.add_argument("--memory-checkpoint", default="models/phyloformer2/pf2.tch")
     return parser.parse_args()
 
 

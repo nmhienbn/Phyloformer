@@ -82,6 +82,9 @@ class QuartetCloseLoss(nn.Module):
                 f"got {y_pred_vec.shape[1]}."
             )
 
+        # ==========================================
+        # 1. Sampling Quartet
+        # ==========================================
         quartets = sample_random_quartets(
             num_leaves=num_leaves,
             num_quartets=self.num_quartets,
@@ -105,6 +108,9 @@ class QuartetCloseLoss(nn.Module):
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         min_idx = torch.argmin(true_sums, dim=1)  # [batch, num_quartets]
 
+        # ==========================================
+        # 2. Caculate Additivity Loss Components (S1, S2, S3)
+        # ==========================================
         e_candidates = torch.stack(
             (
                 pred_sums[:, 1] - pred_sums[:, 2],  # min_idx == 0
@@ -113,10 +119,22 @@ class QuartetCloseLoss(nn.Module):
             ),
             dim=1,
         )
+        
+        # ==========================================
+        # 3. ICML ADDITIVITY LOSS (L_close)
+        # ==========================================
         e = e_candidates.gather(1, min_idx.unsqueeze(1)).squeeze(1)
         e_loss = (e**2).mean()
         
+        
+        # ==========================================
+        # 4. GLOBAL MAE (DEVIATION LOSS)
+        # ==========================================
         siam_loss = self.mae(pred_pairs, true_pairs)
+        
+        # ==========================================
+        # 5. TOTAL LOSS
+        # ==========================================
         loss = e_loss * self.inv_sigma + siam_loss
 
         return loss, e_loss, siam_loss

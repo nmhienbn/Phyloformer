@@ -1,0 +1,53 @@
+{
+  "scatter_dirs": {
+    "ood_fixed": {
+      "counts": {
+        "PANDIT data": 6154,
+        "Training fixed": 5000
+      },
+      "explained_variance_pc1": 0.6403101682662964,
+      "explained_variance_pc2": 0.13732516765594482,
+      "figures": [
+        "experiments/03_pf2_pandit_domain_adaptation/results/05_ood_pca/fixed/embedding_pca_contour.png",
+        "experiments/03_pf2_pandit_domain_adaptation/results/05_ood_pca/fixed/embedding_pca_contour.pdf"
+      ]
+    },
+    "ood_size_matched": {
+      "counts": {
+        "PANDIT data": 6154,
+        "Training size-matched": 4979
+      },
+      "explained_variance_pc1": 0.4614294469356537,
+      "explained_variance_pc2": 0.19750739634037018,
+      "figures": [
+        "experiments/03_pf2_pandit_domain_adaptation/results/05_ood_pca/size_matched/embedding_pca_contour.png",
+        "experiments/03_pf2_pandit_domain_adaptation/results/05_ood_pca/size_matched/embedding_pca_contour.pdf"
+      ]
+    },
+    "paper_simulated_pandit_like_vs_pandit": {
+      "counts": {
+        "PANDIT data": 6162,
+        "Simulated PANDIT-like": 19925
+      },
+      "explained_variance_pc1": 0.38736608624458313,
+      "explained_variance_pc2": 0.24662216007709503,
+      "figures": [
+        "experiments/03_pf2_pandit_domain_adaptation/results/00_paper_figures/pca_contour_simulated_pandit_like_vs_pandit.png",
+        "experiments/03_pf2_pandit_domain_adaptation/results/00_paper_figures/pca_contour_simulated_pandit_like_vs_pandit.pdf"
+      ]
+    },
+    "paper_training_vs_pandit": {
+      "counts": {
+        "PANDIT data": 6154,
+        "Training fixed": 5000,
+        "Training size-matched": 4979
+      },
+      "explained_variance_pc1": 0.5482233166694641,
+      "explained_variance_pc2": 0.17472246289253235,
+      "figures": [
+        "experiments/03_pf2_pandit_domain_adaptation/results/00_paper_figures/pca_contour_training_vs_pandit.png",
+        "experiments/03_pf2_pandit_domain_adaptation/results/00_paper_figures/pca_contour_training_vs_pandit.pdf"
+      ]
+    }
+  }
+}

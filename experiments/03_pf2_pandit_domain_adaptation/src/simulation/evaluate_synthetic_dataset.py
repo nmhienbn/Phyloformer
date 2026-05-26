@@ -77,7 +77,31 @@ def quantile(values: list[float], q: float) -> float | None:
 
 
 def read_empirical_quantiles(path: Path) -> dict[str, float | None]:
-    return {row["metric"]: as_float(row["value"]) for row in read_tsv(path)}
+    rows = read_tsv(path)
+    if not rows:
+        return {}
+
+    if "value" in rows[0]:
+        return {row["metric"]: as_float(row["value"]) for row in rows}
+
+    if {"q25", "median", "q75"}.issubset(rows[0]):
+        values: dict[str, float | None] = {}
+        for row in rows:
+            if row.get("metric") in {"gamma_alpha", "total_tree_length"}:
+                values["q25"] = as_float(row["q25"])
+                values["median"] = as_float(row["median"])
+                values["q75"] = as_float(row["q75"])
+                return values
+        row = rows[0]
+        return {
+            "q25": as_float(row["q25"]),
+            "median": as_float(row["median"]),
+            "q75": as_float(row["q75"]),
+        }
+
+    raise ValueError(
+        f"{path} must contain either metric/value rows or metric/q25/median/q75 rows"
+    )
 
 
 def matrix_from_alignment(path: Path) -> np.ndarray:

@@ -35,7 +35,7 @@ def parse_args() -> argparse.Namespace:
         description="Extract pooled EvoPF embeddings for the Chapter 3 PCA/OOD diagnostic."
     )
     parser.add_argument("manifest_tsv", help="TSV with msa_id and relative_path columns.")
-    parser.add_argument("checkpoint", help="PF2 checkpoint, e.g. third_party/phyloformer2/pretrained/pf2.tch.")
+    parser.add_argument("checkpoint", help="PF2 checkpoint, e.g. models/phyloformer2/pf2.tch.")
     parser.add_argument("outdir")
     parser.add_argument("--input-root", default="data/zenodo_raw")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")

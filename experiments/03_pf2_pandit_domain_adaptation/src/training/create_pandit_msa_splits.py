@@ -26,7 +26,7 @@ LEN_BINS = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Create stratified train/val/test splits for PANDIT AA MSAs."
+        description="Create stratified train/test splits for PANDIT AA MSAs."
     )
     parser.add_argument(
         "--stats-csv",
@@ -40,8 +40,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train-frac", type=float, default=0.70)
-    parser.add_argument("--val-frac", type=float, default=0.15)
-    parser.add_argument("--test-frac", type=float, default=0.15)
     return parser.parse_args()
 
 
@@ -73,14 +71,11 @@ def load_pandit_aa(stats_csv: Path) -> list[dict[str, str]]:
 def split_stratum(
     rows: list[dict[str, str]],
     train_frac: float,
-    val_frac: float,
-    test_frac: float,
 ) -> None:
     n = len(rows)
     raw_counts = {
         "train": n * train_frac,
-        "val": n * val_frac,
-        "test": n * test_frac,
+        "test": n * (1.0 - train_frac),
     }
     counts = {split: int(raw_counts[split]) for split in raw_counts}
     remainder = n - sum(counts.values())
@@ -91,12 +86,9 @@ def split_stratum(
     )
     for split in priority[:remainder]:
         counts[split] += 1
-
-    index = 0
-    for split in ("train", "val", "test"):
-        for row in rows[index : index + counts[split]]:
-            row["split"] = split
-        index += counts[split]
+    train_count = counts["train"]
+    for index, row in enumerate(rows):
+        row["split"] = "train" if index < train_count else "test"
 
 
 def write_tsv(path: Path, rows: list[dict[str, str]]) -> None:
@@ -137,7 +129,7 @@ def write_split_summary(outdir: Path, rows: list[dict[str, str]]) -> None:
         ]
         writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
-        for split in ("train", "val", "test"):
+        for split in ("train", "test"):
             items = by_split[split]
             seqs = [int(row["num_sequences"]) for row in items]
             lens = [int(row["alignment_length"]) for row in items]
@@ -154,11 +146,11 @@ def write_split_summary(outdir: Path, rows: list[dict[str, str]]) -> None:
 
     stratum_path = outdir / "split_strata_counts.tsv"
     with stratum_path.open("w", encoding="utf-8", newline="") as handle:
-        fieldnames = ["stratum", "train", "val", "test", "total"]
+        fieldnames = ["stratum", "train", "test", "total"]
         writer = csv.DictWriter(handle, fieldnames=fieldnames, delimiter="\t")
         writer.writeheader()
         for stratum in sorted({row["stratum"] for row in rows}):
-            counts = {split: by_stratum[(stratum, split)] for split in ("train", "val", "test")}
+            counts = {split: by_stratum[(stratum, split)] for split in ("train", "test")}
             writer.writerow(
                 {
                     "stratum": stratum,
@@ -170,9 +162,8 @@ def write_split_summary(outdir: Path, rows: list[dict[str, str]]) -> None:
 
 def main() -> None:
     args = parse_args()
-    total_frac = args.train_frac + args.val_frac + args.test_frac
-    if abs(total_frac - 1.0) > 1e-8:
-        raise ValueError(f"Split fractions must sum to 1.0, got {total_frac}")
+    if not 0.0 < args.train_frac < 1.0:
+        raise ValueError(f"--train-frac must be in (0, 1), got {args.train_frac}")
 
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -184,12 +175,15 @@ def main() -> None:
         strata[row["stratum"]].append(row)
     for items in strata.values():
         rng.shuffle(items)
-        split_stratum(items, args.train_frac, args.val_frac, args.test_frac)
+        split_stratum(items, args.train_frac)
 
     rows.sort(key=lambda row: int(row["msa_id"]))
     write_tsv(outdir / "pandit_all.tsv", rows)
-    for split in ("train", "val", "test"):
+    for split in ("train", "test"):
         write_tsv(outdir / f"pandit_{split}.tsv", [row for row in rows if row["split"] == split])
+    stale_three_way_split_path = outdir / "pandit_val.tsv"
+    if stale_three_way_split_path.exists():
+        stale_three_way_split_path.unlink()
     write_split_summary(outdir, rows)
 
     print(f"[OK] wrote splits to {outdir}")

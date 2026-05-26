@@ -1,5 +1,14 @@
-# Tải test datasets từ Zenodo
-- raw tree, MSA
+# Infer PhyloFormer 2
+
+Doc này dùng cho pipeline PF2 hiện tại:
+
+```text
+MSA -> PF2 --mode max-sample -> predicted .nwk -> phylocompare -> plots
+```
+
+Không dùng FastME trong pipeline PF2 chính. `PF2 --mode dm -> FastME` chỉ giữ như thử nghiệm cũ, không dùng để báo cáo chính.
+
+## 1. Tải test datasets từ Zenodo
 
 ```bash
 cd /raid/home/hiennguyen/Phyloformer
@@ -20,125 +29,140 @@ done
 tar -xJf downloads/paper_test_sets.tar.xz -C data
 tar -xzf downloads/results.tar.gz -C .
 ```
-# Infer PhyloFormer 1 + FastME
-last.ckpt -> .phy -> .nwk -> cmp_pf1_topo/dist.csv
 
-- Setting checkpoint, tên model lưu và tên model trong plot:
-    ```bash
-    CKPT="models/pf1_base_1GPU.ckpt"
-    MODEL_NAME="pfbase_1GPU"
-    PLOT_MODEL_NAME="PF_1GPU+FastME"
-    BIN="./bin/bin_linux"
-    ```
+Expected layout:
 
-- Chạy toàn bộ test set:
-    ```bash
-    TOTAL_START=$(date +%s)
-    for D in data/final_test_set data/LGGC+gaps data/cherry_test_data data/pastek_test_data; do
-        NAME=$(basename "$D")
-        OUT="runs/$MODEL_NAME/eval_${NAME}"
-        mkdir -p "$OUT/mats" "$OUT/trees"
-        SET_START=$(date +%s)
-
-        CUDA_VISIBLE_DEVICES=7 python third_party/phyloformer1/infer_alns.py "$CKPT" "$D/alignments" -o "$OUT/mats"
-
-        python third_party/benchmark/run_fastme_compare.py \
-          --bin-dir "$BIN" \
-          --mats-dir "$OUT/mats" \
-          --trees-dir "$OUT/trees" \
-          --label "$NAME" \
-          --threads 1 \
-          --true-trees "$D/trees" \
-          --cmp-out "$OUT/cmp_pf1" \
-          --method-name "$PLOT_MODEL_NAME"
-        SET_END=$(date +%s)
-        echo "[TIME] [$NAME] END-TO-END TOTAL: $((SET_END - SET_START))s"
-    done
-    TOTAL_END=$(date +%s)
-    echo "[TIME] ALL DATASETS TOTAL: $((TOTAL_END - TOTAL_START))s"
-    ```
-
-- Plot cần chú ý truyền `--new-dist`/`--new-topo` của những bộ cần benchmark:
-```bash
-python third_party/benchmark/make_plots2.py \
-  --new-model-only \
-  --new-model-name "$PLOT_MODEL_NAME" \
-  --new-topo "runs/$MODEL_NAME/eval_final_test_set/cmp_pf1_topo.csv" \
-  --new-dist "runs/$MODEL_NAME/eval_final_test_set/cmp_pf1_dist.csv" \
-  --new-topo "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_pf1_topo.csv" \
-  --new-dist "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_pf1_dist.csv" \
-  --new-topo "runs/$MODEL_NAME/eval_cherry_test_data/cmp_pf1_topo.csv" \
-  --new-dist "runs/$MODEL_NAME/eval_cherry_test_data/cmp_pf1_dist.csv" \
-  --new-topo "runs/$MODEL_NAME/eval_pastek_test_data/cmp_pf1_topo.csv" \
-  --new-dist "runs/$MODEL_NAME/eval_pastek_test_data/cmp_pf1_dist.csv" \
-  --outdir figures/$MODEL_NAME
+```text
+data/final_test_set/alignments/*.fa
+data/final_test_set/trees/*.nwk
+data/LGGC+gaps/alignments/*.fa
+data/LGGC+gaps/trees/*.nwk
+data/cherry_test_data/alignments/*.fa
+data/cherry_test_data/trees/*.nwk
+data/pastek_test_data/alignments/*.fa
+data/pastek_test_data/trees/*.nwk
 ```
 
-# Chạy PF2_MAE: evoPF + FastME
+## 2. Checkpoint và môi trường
+
+Chạy bằng env `pf2`:
 
 ```bash
-EVO_CKPT="runs/PF2_PAPER/20260321-223929-tan-dry-woodlouse/checkpoints/best_val_loss.ckpt"
-MODEL_NAME="evopf"
-PLOT_MODEL_NAME="evoPF"
+conda activate pf2
+```
+
+Checkpoint mặc định:
+
+```bash
+CKPT="models/phyloformer2/pf2.tch"
+MODEL_NAME="pf2"
+PLOT_MODEL_NAME="PF2"
 BIN="./bin/bin_linux"
 ```
 
-- Chạy toàn bộ test set
-    ```bash
-    TOTAL_START=$(date +%s)
-    for D in data/final_test_set data/LGGC+gaps data/cherry_test_data data/pastek_test_data; do
-        NAME=$(basename "$D")
-        OUT="runs/$MODEL_NAME/eval_${NAME}"
-        rm -rf "$OUT"
-        mkdir -p "$OUT/trees"
-        SET_START=$(date +%s)
+Checkpoint fine-tuned theo dataset nếu muốn chạy riêng:
 
-        if CUDA_VISIBLE_DEVICES=7 conda run --no-capture-output -n pf2 python third_party/phyloformer2/infer.py \
-          --mode dm \
-          "$D/alignments" \
-          "$EVO_CKPT" \
-          "$OUT/mats"; then
-            N_MATS=$(find "$OUT/mats" -maxdepth 1 -name '*.phy' | wc -l)
-        else
-            N_MATS=0
-        fi
+```bash
+PF2_BASE="models/phyloformer2/pf2.tch"
+PF2_CHERRY="models/phyloformer2/pf2_cherry.tch"
+PF2_PASTEK="models/phyloformer2/pf2_pastek.tch"
+```
 
-        if [ "$N_MATS" -eq 0 ]; then
-            echo "[WARN] [${NAME}_evoPF] No .phy files produced in $OUT/mats, skip FASTME/phylocompare"
-            SET_END=$(date +%s)
-            echo "[TIME] [${NAME}_evoPF] END-TO-END TOTAL: $((SET_END - SET_START))s"
-            continue
-        fi
+## 3. Infer với checkpoint fine-tuned
 
-        python third_party/benchmark/run_fastme_compare.py \
-          --bin-dir "$BIN" \
-          --mats-dir "$OUT/mats" \
-          --trees-dir "$OUT/trees" \
-          --label "${NAME}_evoPF" \
-          --threads 1 \
-          --true-trees "$D/trees" \
-          --cmp-out "$OUT/cmp_evopf" \
-          --method-name evoPF+FastME
+Nếu muốn dùng checkpoint tương ứng cho từng domain:
 
-        SET_END=$(date +%s)
-        echo "[TIME] [${NAME}_evoPF] END-TO-END TOTAL: $((SET_END - SET_START))s"
-    done
-    TOTAL_END=$(date +%s)
-    echo "[TIME] [evoPF] ALL DATASETS TOTAL: $((TOTAL_END - TOTAL_START))s"
-    ```
+```bash
+TOTAL_START=$(date +%s)
 
-- Plot cho PF2: evoPF + FastME
-    ```bash
-    python third_party/benchmark/make_plots2.py \
-      --new-model-only \
-      --new-model-name "$PLOT_MODEL_NAME" \
-      --new-topo "runs/$MODEL_NAME/eval_final_test_set/cmp_evopf_topo.csv" \
-      --new-dist "runs/$MODEL_NAME/eval_final_test_set/cmp_evopf_dist.csv" \
-      --new-topo "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_evopf_topo.csv" \
-      --new-dist "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_evopf_dist.csv" \
-      --new-topo "runs/$MODEL_NAME/eval_cherry_test_data/cmp_evopf_topo.csv" \
-      --new-dist "runs/$MODEL_NAME/eval_cherry_test_data/cmp_evopf_dist.csv" \
-      --new-topo "runs/$MODEL_NAME/eval_pastek_test_data/cmp_evopf_topo.csv" \
-      --new-dist "runs/$MODEL_NAME/eval_pastek_test_data/cmp_evopf_dist.csv" \
-      --outdir figures/evopf/cmp_evopf
-    ```
+declare -A CKPTS
+CKPTS["final_test_set"]="models/phyloformer2/pf2.tch"
+CKPTS["LGGC+gaps"]="models/phyloformer2/pf2.tch"
+CKPTS["cherry_test_data"]="models/phyloformer2/pf2_cherry.tch"
+CKPTS["pastek_test_data"]="models/phyloformer2/pf2_pastek.tch"
+
+MODEL_NAME="pf2_domain_ckpt"
+PLOT_MODEL_NAME="PF2_domain_ckpt"
+
+for D in data/final_test_set data/LGGC+gaps data/cherry_test_data data/pastek_test_data; do
+  NAME="$(basename "$D")"
+  CKPT="${CKPTS[$NAME]}"
+  OUT="runs/$MODEL_NAME/eval_${NAME}"
+  SET_START=$(date +%s)
+
+  rm -rf "$OUT"
+  mkdir -p "$OUT"
+
+  CUDA_VISIBLE_DEVICES=7 conda run --no-capture-output -n pf2 \
+    python third_party/phyloformer2/infer.py \
+      --mode max-sample \
+      "$D/alignments" \
+      "$CKPT" \
+      "$OUT/trees"
+
+  python third_party/tools/evaluation/run_phylocompare.py \
+    --bin-dir "$BIN" \
+    --pred-trees "$OUT/trees" \
+    --true-trees "$D/trees" \
+    --cmp-out "$OUT/cmp_pf2" \
+    --method-name "$PLOT_MODEL_NAME" \
+    --label "$NAME"
+
+  SET_END=$(date +%s)
+  echo "[TIME] [$NAME] PF2 domain ckpt infer+compare: $((SET_END - SET_START))s"
+done
+
+TOTAL_END=$(date +%s)
+echo "[TIME] [PF2 domain ckpt] ALL DATASETS TOTAL: $((TOTAL_END - TOTAL_START))s"
+```
+
+## 4. Plot
+
+Plot kết quả của một model trên 4 test sets:
+
+```bash
+python third_party/tools/plots/make_plots2.py \
+  --new-model-only \
+  --new-model-name "$PLOT_MODEL_NAME" \
+  --new-topo "runs/$MODEL_NAME/eval_final_test_set/cmp_pf2_topo.csv" \
+  --new-dist "runs/$MODEL_NAME/eval_final_test_set/cmp_pf2_dist.csv" \
+  --new-topo "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_pf2_topo.csv" \
+  --new-dist "runs/$MODEL_NAME/eval_LGGC+gaps/cmp_pf2_dist.csv" \
+  --new-topo "runs/$MODEL_NAME/eval_cherry_test_data/cmp_pf2_topo.csv" \
+  --new-dist "runs/$MODEL_NAME/eval_cherry_test_data/cmp_pf2_dist.csv" \
+  --new-topo "runs/$MODEL_NAME/eval_pastek_test_data/cmp_pf2_topo.csv" \
+  --new-dist "runs/$MODEL_NAME/eval_pastek_test_data/cmp_pf2_dist.csv" \
+  --outdir "figures/$MODEL_NAME"
+```
+
+Nếu chỉ cần boxplot topology:
+
+```bash
+python third_party/tools/plots/plot_topology_boxplots.py \
+  --cmp-topo "PF2|final_test_set=runs/$MODEL_NAME/eval_final_test_set/cmp_pf2_topo.csv" \
+  --cmp-topo "PF2|LGGC+gaps=runs/$MODEL_NAME/eval_LGGC+gaps/cmp_pf2_topo.csv" \
+  --cmp-topo "PF2|cherry_test_data=runs/$MODEL_NAME/eval_cherry_test_data/cmp_pf2_topo.csv" \
+  --cmp-topo "PF2|pastek_test_data=runs/$MODEL_NAME/eval_pastek_test_data/cmp_pf2_topo.csv" \
+  --outdir "figures/$MODEL_NAME/topology_boxplots"
+```
+
+## 5. Chạy qua wrapper benchmark
+
+Infer, compare, runtime summary và optional plot:
+
+```bash
+CUDA_VISIBLE_DEVICES=7 python third_party/tools/inference/run_pf2_pure_benchmark.py \
+  models/phyloformer2/pf2.tch \
+  data/final_test_set/alignments \
+  runs/pf2/eval_final_test_set_wrapper \
+  --true-trees data/final_test_set/trees \
+  --method-name PF2 \
+  --plot \
+  --overwrite
+```
+
+## 6. Ghi chú
+
+- `--mode max-sample` xuất trực tiếp cây `.nwk`; đây là pipeline PF2 chính.
+- `--mode samples` xuất nhiều cây sample cho mỗi MSA, dùng khi cần phân tích bất định topology.
+- `--mode dm` xuất distance matrix `.phy`; không dùng cho benchmark PF2 chính vì sẽ kéo thêm FastME.

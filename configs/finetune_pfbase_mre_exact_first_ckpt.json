@@ -3,7 +3,7 @@
   "train_alignments": "data/paper_pfbase/train/msas",
   "val_trees": "data/paper_pfbase/val/trees",
   "val_alignments": "data/paper_pfbase/val/msas",
-  "base_model": "pretrained_models/pf_base.ckpt",
+  "base_model": "models/phyloformer1/pf_base.ckpt",
   "nb_blocks": 6,
   "embed_dim": 64,
   "nb_heads": 4,

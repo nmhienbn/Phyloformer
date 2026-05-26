@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 from Bio import AlignIO
 
-from pf2_vram import derive_pf2_cap_length
+from third_party.tools.vram.pf2_vram import derive_pf2_cap_length
 
 GAP_CHARS = {"-", ".", "?"}
 DNA_CHARS = set("ACGTUN")
@@ -141,7 +141,9 @@ def to_matrix(seqs: list[str]) -> np.ndarray:
         raise ValueError(f"Non-rectangular alignment: lengths={sorted(lengths)}")
     return np.array([list(s) for s in seqs], dtype="<U1")
 
-
+# ===================================================
+# ============= Biological Features =================
+# ===================================================
 def is_gap(c: str) -> bool:
     return c in GAP_CHARS
 
@@ -299,7 +301,9 @@ def weighted_standardize(features: np.ndarray, weights: np.ndarray) -> np.ndarra
     std[std == 0] = 1.0
     return (features - mean) / std * weights[np.newaxis, :]
 
-
+# ===================================================
+# ====================== GMM ========================
+# ===================================================
 def select_gmm_by_bic(
     X: np.ndarray,
     k_range: range | list[int] = range(2, 7),

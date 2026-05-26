@@ -92,6 +92,9 @@ class QuartetPushLoss(nn.Module):
                 f"got {y_pred_vec.shape[1]}."
             )
 
+        # ==========================================
+        # 1. Sampling Quartet
+        # ==========================================
         quartets = sample_random_quartets(
             num_leaves=num_leaves,
             num_quartets=self.num_quartets,
@@ -115,15 +118,29 @@ class QuartetPushLoss(nn.Module):
         true_sums = true_pairs.reshape(batch_size, 3, 2, self.num_quartets).sum(dim=2)
         min_idx = torch.argmin(true_sums, dim=1)  # [batch, num_quartets]
 
+        # ==========================================
+        # 2. Caculate Additivity Loss Components (S1, S2, S3)
+        # ==========================================
         pred_s_true = pred_sums.gather(1, min_idx.unsqueeze(1))
         margin_diffs = F.relu(pred_s_true - pred_sums + self.margin)
 
         mask = torch.ones_like(pred_sums, dtype=torch.bool)
         mask.scatter_(1, min_idx.unsqueeze(1), False)
+        
+        # ==========================================
+        # 3. ICML ADDITIVITY LOSS (L_close)
+        # ==========================================
         e_loss = (margin_diffs * mask).sum(dim=1).mean()
 
+        # ==========================================
+        # 4. GLOBAL MAE (DEVIATION LOSS)
+        # ==========================================
         denom = y_true_vec.clamp_min(1e-8)
         mre_loss = (torch.abs(y_pred_vec - y_true_vec) / denom).mean()
+        
+        # ==========================================
+        # 5. TOTAL LOSS
+        # ==========================================
         loss = mre_loss + self.lambda_q * e_loss
 
         return loss, e_loss, mre_loss

@@ -102,7 +102,7 @@ Chạy bằng config:
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 \
 python third_party/phyloformer1/train_distributed.py \
-  --config configs/paper_pfbase_pretrain_6gpu_exact.json
+  --config experiments/01_pf1_vram/configs/paper_pfbase_pretrain_6gpu_exact.json
 ```
 
 Có thể override từng tham số của config từ CLI:
@@ -110,7 +110,7 @@ Có thể override từng tham số của config từ CLI:
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 python third_party/phyloformer1/train_distributed.py \
-  --config configs/paper_pfbase_pretrain_6gpu_exact.json \
+  --config experiments/01_pf1_vram/configs/paper_pfbase_pretrain_6gpu_exact.json \
   --devices 4 \
   --run-name PFBASE_RETRY_4GPU \
   --output-dir runs/paper_pfbase_retry_4gpu
@@ -156,6 +156,6 @@ Chạy bằng config:
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5 \
 python third_party/phyloformer1/train_distributed.py \
-  --config configs/paper_pfbase_finetune_mre_6gpu_exact.json \
+  --config experiments/01_pf1_vram/configs/paper_pfbase_finetune_mre_6gpu_exact.json \
   --base-model runs/paper_pfbase/checkpoints_<pretrain_identifier>/last.ckpt
 ```

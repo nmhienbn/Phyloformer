@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Sinh protein big alignment từ tập cây PF1-style.
-
-Mỗi replicate (= 1 cây):
-  - Sinh gene liên tiếp với gene_len ~ lognormal (clip [100, 4500]) cho tới khi đủ target_sites
-  - Model: LG+G8, alpha sample từ HOGENOM empirical
-  - Concatenate thành 1 big alignment, kiểm tra duplicate ở cấp big alignment
-  - Ghi partition.tsv và meta.json
-"""
 
 import argparse
 import json
@@ -90,7 +81,7 @@ def concatenate_genes(gene_fas, gene_lens, out_fa):
             taxa_order = list(records.keys())
         for tid in taxa_order:
             seq = records[tid]
-            # Trim về đúng gene_len nếu AliSim sinh dài hơn
+            # Trim về đúng gene_len
             taxa_seqs.setdefault(tid, "")
             taxa_seqs[tid] += seq[:glen]
     with open(out_fa, "w") as fh:
@@ -144,7 +135,6 @@ def main():
 
         while pos - 1 < args.target_sites:
             gene_len = sample_gene_len()
-            # Không lấy gene dài hơn phần còn thiếu (optional: tắt nếu muốn giữ đủ gene_len)
             alpha = sample_alpha(alphas)
             out_fa = str(genes_dir / f"gene_{gene_idx + 1:03d}.fa")
 
@@ -154,7 +144,6 @@ def main():
                 if Path(out_fa).exists():
                     ok = True
                     break
-                # AliSim thất bại, thử lại với alpha mới
                 alpha = sample_alpha(alphas)
 
             if not ok:
@@ -191,7 +180,7 @@ def main():
         big_fa = rep_dir / "big.fa"
         concatenate_genes(gene_fas, gene_lens_actual, str(big_fa))
 
-        # Kiểm tra duplicate ở cấp big alignment (warn only — rất khó xảy ra với alignment dài)
+        # Kiểm tra duplicate alignment
         if has_duplicates(str(big_fa)):
             tqdm.write(f"[WARN] rep_{idx:03d}: big alignment has duplicate sequences")
 

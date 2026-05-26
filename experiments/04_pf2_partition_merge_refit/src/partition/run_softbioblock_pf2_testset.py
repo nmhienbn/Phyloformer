@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run SoftBioBlock prepare + PF2 block inference over a FASTA directory.")
     parser.add_argument("alignments")
     parser.add_argument("output_root")
-    parser.add_argument("--checkpoint", default="third_party/phyloformer2/pretrained/pf2.tch")
+    parser.add_argument("--checkpoint", default="models/phyloformer2/pf2.tch")
     parser.add_argument("--gpu", default="0")
     parser.add_argument("--cpu-threads", type=int, default=8)
     parser.add_argument("--include-glob", default="*.fa")

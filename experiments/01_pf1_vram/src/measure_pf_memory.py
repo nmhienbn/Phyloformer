@@ -142,8 +142,8 @@ def build_worker_parser() -> argparse.ArgumentParser:
     p.add_argument("--gpu", type=int, default=None)
     p.add_argument("--hold-sec", type=float, default=0.5)
     p.add_argument("--json-out", required=True)
-    p.add_argument("--pf1-ckpt", default=str(REPO_ROOT / "pretrained_models" / "pf_base.ckpt"))
-    p.add_argument("--pf2-ckpt", default=str(PF2_ROOT / "pretrained" / "pf2.tch"))
+    p.add_argument("--pf1-ckpt", default=str(REPO_ROOT / "models" / "phyloformer1" / "pf_base.ckpt"))
+    p.add_argument("--pf2-ckpt", default=str(REPO_ROOT / "models" / "phyloformer2" / "pf2.tch"))
     p.add_argument("--pf1-blocks", type=int, default=6)
     p.add_argument("--pf1-heads", type=int, default=4)
     p.add_argument("--pf1-embed", type=int, default=64)
@@ -363,13 +363,31 @@ def worker_main(args: argparse.Namespace) -> int:
     return 0 if result["status"] in {"ok", "oom"} else 1
 
 
+def memory_cmap():
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import ListedColormap
+
+    base = plt.get_cmap("rocket") if "rocket" in plt.colormaps() else plt.get_cmap("magma")
+    colors = base(np.linspace(0, 1, 256))
+    colors[-32:] = colors[-33]
+    cmap = ListedColormap(colors, name=f"{base.name}_readable_max")
+    cmap.set_bad(color="#d9d9e3")
+    return cmap
+
+
 def plot_heatmap(matrix: np.ndarray, seqs: list[int], lengths: list[int], out_png: Path, title: str) -> None:
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(max(8, 0.9 * len(lengths)), max(6, 0.6 * len(seqs))))
-    cmap = plt.get_cmap("rocket").copy() if "rocket" in plt.colormaps() else plt.get_cmap("magma").copy()
-    cmap.set_bad(color="#d9d9e3")
-    im = ax.imshow(matrix, aspect="auto", interpolation="nearest", cmap=cmap)
+    cmap = memory_cmap()
+    im = ax.imshow(
+        matrix,
+        aspect="auto",
+        interpolation="nearest",
+        cmap=cmap,
+        vmin=0,
+        vmax=np.nanmax(matrix),
+    )
 
     ax.set_xticks(range(len(lengths)))
     ax.set_xticklabels([str(x) for x in lengths])
@@ -416,8 +434,8 @@ def parent_main(argv: list[str]) -> int:
     parser.add_argument("--poll-interval", type=float, default=0.05)
     parser.add_argument("--hold-sec", type=float, default=0.5)
     parser.add_argument("--outdir", required=True)
-    parser.add_argument("--pf1-ckpt", default=str(REPO_ROOT / "pretrained_models" / "pf_base.ckpt"))
-    parser.add_argument("--pf2-ckpt", default=str(PF2_ROOT / "pretrained" / "pf2.tch"))
+    parser.add_argument("--pf1-ckpt", default=str(REPO_ROOT / "models" / "phyloformer1" / "pf_base.ckpt"))
+    parser.add_argument("--pf2-ckpt", default=str(REPO_ROOT / "models" / "phyloformer2" / "pf2.tch"))
     parser.add_argument("--pf1-blocks", type=int, default=6)
     parser.add_argument("--pf1-heads", type=int, default=4)
     parser.add_argument("--pf1-embed", type=int, default=64)
@@ -550,7 +568,7 @@ def parent_main(argv: list[str]) -> int:
         matrix=matrix,
         seqs=seqs,
         lengths=lengths,
-        out_png=outdir / "memory_grid_heatmap.png",
+        out_png=outdir / "memory_grid_heatmap.pdf",
         title=f"{args.profile} | batch={args.batch_size} | {args.dtype}",
     )
     return 0
