@@ -15,8 +15,10 @@ from pathlib import Path
 
 import numpy as np
 from Bio import AlignIO
+from numba import njit, prange, set_num_threads
 
 from third_party.tools.vram.pf2_vram import derive_pf2_cap_length
+from fast_tiger import encode_alignment, fast_tiger_rates_encoded
 
 GAP_CHARS = {"-", ".", "?"}
 DNA_CHARS = set("ACGTUN")
@@ -100,6 +102,7 @@ def parse_args() -> argparse.Namespace:
         default=0.05,
         help="Fractional overlap between adjacent windows within a regime. Default: 0.05.",
     )
+    parser.add_argument("--cpu-threads", type=int, default=None)
     parser.add_argument("--checkpoint", default=None)
     return parser.parse_args()
 
@@ -141,122 +144,147 @@ def to_matrix(seqs: list[str]) -> np.ndarray:
         raise ValueError(f"Non-rectangular alignment: lengths={sorted(lengths)}")
     return np.array([list(s) for s in seqs], dtype="<U1")
 
-# ===================================================
-# ============= Biological Features =================
-# ===================================================
-def is_gap(c: str) -> bool:
-    return c in GAP_CHARS
+
+@njit(cache=True, parallel=True)
+def _preprocess_columns_numba(
+    encoded: np.ndarray,
+    gap_threshold: float,
+    max_code: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    nseq, nsites = encoded.shape
+    keep_mask = np.zeros(nsites, dtype=np.bool_)
+    variant_mask = np.zeros(nsites, dtype=np.bool_)
+    gap_ratios = np.zeros(nsites, dtype=np.float64)
+
+    for ci in prange(nsites):
+        counts = np.zeros(max_code + 1, dtype=np.int64)
+        n_gap = 0
+        n_states = 0
+        for ri in range(nseq):
+            code = encoded[ri, ci]
+            if code == 0:
+                n_gap += 1
+            else:
+                if counts[code] == 0:
+                    n_states += 1
+                counts[code] += 1
+
+        gr = n_gap / nseq
+        gap_ratios[ci] = gr
+        if gr != 1.0 and gr <= gap_threshold:
+            keep_mask[ci] = True
+            variant_mask[ci] = n_states > 1
+
+    return keep_mask, variant_mask, gap_ratios
+
+@njit(cache=True, parallel=True)
+def _site_features_numba(
+    encoded: np.ndarray,
+    rates: np.ndarray,
+    alphabet_codes: np.ndarray,
+    alphabet_size: int,
+    max_code: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    nseq, nsites = encoded.shape
+    features = np.zeros((nsites, 5 + alphabet_size), dtype=np.float64)
+    site_info = np.zeros(nsites, dtype=np.float64)
+    entropy_norm = math.log2(alphabet_size) if alphabet_size > 1 else 1.0
+
+    for ci in prange(nsites):
+        counts = np.zeros(max_code + 1, dtype=np.int64)
+        n_gap = 0
+        n_non_gap = 0
+        informative_states = 0
+
+        for ri in range(nseq):
+            code = encoded[ri, ci]
+            if code == 0:
+                n_gap += 1
+            else:
+                counts[code] += 1
+                n_non_gap += 1
+
+        entropy = 0.0
+        if n_non_gap > 0:
+            for code in range(1, max_code + 1):
+                count = counts[code]
+                if count > 0:
+                    p = count / n_non_gap
+                    entropy -= p * math.log2(p)
+                if count >= 2:
+                    informative_states += 1
+            entropy /= entropy_norm
+
+        gap_ratio = n_gap / nseq
+        gap_pattern_entropy = 0.0
+        if n_gap != 0 and n_gap != nseq:
+            p_gap = n_gap / nseq
+            gap_pattern_entropy = -(p_gap * math.log2(p_gap) + (1.0 - p_gap) * math.log2(1.0 - p_gap))
+
+        informative = 1.0 if informative_states >= 2 else 0.0
+        features[ci, 0] = rates[ci]
+        features[ci, 1] = entropy
+        features[ci, 2] = gap_pattern_entropy
+        features[ci, 3] = informative
+        features[ci, 4] = gap_ratio
+        for ai in range(alphabet_size):
+            code = alphabet_codes[ai]
+            features[ci, 5 + ai] = counts[code] / n_non_gap if n_non_gap > 0 else 0.0
+        site_info[ci] = (1.0 - gap_ratio) * informative
+
+    return features, site_info
 
 
-def non_gap_chars(col: np.ndarray) -> list[str]:
-    return [c for c in col.tolist() if not is_gap(c)]
-
-
-def is_variant_site(col: np.ndarray) -> bool:
-    return len(set(non_gap_chars(col))) > 1
-
-
-def is_parsimony_informative(col: np.ndarray) -> bool:
-    counts = Counter(non_gap_chars(col))
-    return sum(1 for v in counts.values() if v >= 2) >= 2
-
-
-def site_entropy(col: np.ndarray, alphabet_size: int) -> float:
-    chars = non_gap_chars(col)
-    if not chars:
-        return 0.0
-    counts = Counter(chars)
-    total = float(len(chars))
-    h = -sum((v / total) * math.log2(v / total) for v in counts.values() if v > 0)
-    return h / (math.log2(alphabet_size) if alphabet_size > 1 else 1.0)
-
-
-def gap_pattern_entropy(col: np.ndarray) -> float:
-    n = len(col)
+@njit(cache=True)
+def _block_stats_numba(
+    local_idx: np.ndarray,
+    rates: np.ndarray,
+    entropies: np.ndarray,
+    gap_ratios: np.ndarray,
+    informative_flags: np.ndarray,
+) -> tuple[float, float, float, float, float]:
+    n = len(local_idx)
     if n == 0:
-        return 0.0
-    n_gap = sum(1 for c in col if is_gap(c))
-    if n_gap in (0, n):
-        return 0.0
-    p = n_gap / n
-    return -(p * math.log2(p) + (1 - p) * math.log2(1 - p))
+        return 0.0, 0.0, 0.0, 0.0, 0.0
 
+    rate_sum = 0.0
+    entropy_sum = 0.0
+    gap_sum = 0.0
+    informative_sum = 0.0
+    effective_length = 0.0
+    for i in range(n):
+        li = local_idx[i]
+        rate_sum += rates[li]
+        entropy_sum += entropies[li]
+        gap_sum += gap_ratios[li]
+        informative_sum += informative_flags[li]
+        effective_length += 1.0 - gap_ratios[li]
 
-def composition_vector(col: np.ndarray, alphabet: list[str]) -> list[float]:
-    chars = non_gap_chars(col)
-    if not chars:
-        return [0.0] * len(alphabet)
-    counts = Counter(chars)
-    total = float(sum(counts.values()))
-    return [counts.get(c, 0) / total for c in alphabet]
+    return (
+        rate_sum / n,
+        entropy_sum / n,
+        gap_sum / n,
+        informative_sum / n,
+        effective_length,
+    )
 
-
-def preprocess_columns(
-    matrix: np.ndarray, gap_threshold: float
-) -> tuple[np.ndarray, list[int], list[int], list[int], list[float]]:
-    kept, variant, invariant, gap_ratios = [], [], [], []
-    for ci in range(matrix.shape[1]):
-        col = matrix[:, ci]
-        gr = float(sum(is_gap(c) for c in col.tolist())) / float(len(col))
-        if gr == 1.0 or gr > gap_threshold:
-            continue
-        kept.append(ci)
-        gap_ratios.append(gr)
-        (variant if is_variant_site(col) else invariant).append(ci)
-    filtered = matrix[:, kept] if kept else matrix[:, :0]
-    return filtered, kept, variant, invariant, gap_ratios
-
-
-def compute_pair_similarity(
-    matrix: np.ndarray, count_gap_gap: bool = False
-) -> tuple[np.ndarray, float]:
-    nseq = matrix.shape[0]
-    sim = np.zeros((nseq, nseq), dtype=float)
-    total = 0.0
-    for i in range(nseq):
-        for j in range(i + 1, nseq):
-            same = 0
-            for a, b in zip(matrix[i], matrix[j]):
-                if a != b:
-                    continue
-                if is_gap(a) or is_gap(b):
-                    if count_gap_gap and is_gap(a) and is_gap(b):
-                        same += 1
-                    continue
-                same += 1
-            sim[i, j] = sim[j, i] = same
-            total += same
-    return sim, total
-
-
-def fast_tiger_rates(
+def preprocess_columns_encoded(
     matrix: np.ndarray,
-    kept_columns: list[int],
-    count_gap_gap: bool = False,
-) -> dict[int, float]:
-    if not kept_columns:
-        return {}
-    filtered = matrix[:, kept_columns]
-    sim, total = compute_pair_similarity(filtered, count_gap_gap=count_gap_gap)
-    if total <= 0:
-        return {ci: 0.0 for ci in kept_columns}
-    rates: dict[int, float] = {}
-    for local_idx, ci in enumerate(kept_columns):
-        col = filtered[:, local_idx]
-        same_w = sum(
-            sim[i, j]
-            for i in range(filtered.shape[0])
-            for j in range(i + 1, filtered.shape[0])
-            if (
-                col[i] == col[j]
-                and (
-                    (not is_gap(col[i]) and not is_gap(col[j]))
-                    or (count_gap_gap and is_gap(col[i]) and is_gap(col[j]))
-                )
-            )
-        )
-        rates[ci] = 1.0 - (same_w / total)
-    return rates
+    encoded: np.ndarray,
+    gap_threshold: float,
+) -> tuple[np.ndarray, np.ndarray, list[int], list[int], list[int], list[float]]:
+    max_code = int(encoded.max()) if encoded.size else 0
+    keep_mask, variant_mask, all_gap_ratios = _preprocess_columns_numba(
+        encoded, gap_threshold, max_code
+    )
+    kept_array = np.flatnonzero(keep_mask).astype(np.int64)
+    kept = kept_array.tolist()
+    variant = [ci for ci in kept if bool(variant_mask[ci])]
+    invariant = [ci for ci in kept if not bool(variant_mask[ci])]
+    gap_ratios = [float(all_gap_ratios[ci]) for ci in kept]
+    filtered = matrix[:, kept] if kept else matrix[:, :0]
+    filtered_encoded = encoded[:, kept_array] if len(kept_array) else encoded[:, :0]
+    return filtered, filtered_encoded, kept, variant, invariant, gap_ratios
 
 
 def build_feature_weights(alphabet: list[str]) -> np.ndarray:
@@ -268,29 +296,21 @@ def build_feature_weights(alphabet: list[str]) -> np.ndarray:
     )
 
 
-def site_feature_matrix(
-    matrix: np.ndarray,
-    global_rates: dict[int, float],
-    global_to_local: dict[int, int],
-    site_indices: list[int],
+def site_feature_matrix_encoded(
+    filtered_encoded: np.ndarray,
+    rate_values: np.ndarray,
     alphabet: list[str],
-) -> tuple[np.ndarray, list[dict]]:
-    alpha_size = max(len(alphabet), 1)
-    rows, stats = [], []
-    for ci in site_indices:
-        col = matrix[:, global_to_local[ci]]
-        gr = float(sum(is_gap(c) for c in col.tolist())) / float(len(col))
-        inf = 1.0 if is_parsimony_informative(col) else 0.0
-        ent = site_entropy(col, alpha_size)
-        gpe = gap_pattern_entropy(col)
-        comp = composition_vector(col, alphabet)
-        rows.append([global_rates.get(ci, 0.0), ent, gpe, inf, gr, *comp])
-        stats.append({"rate": global_rates.get(ci, 0.0), "entropy": ent,
-                      "gap_pattern_entropy": gpe, "gap_ratio": gr, "informative": inf})
-    n_alpha = len(alphabet)
-    if not rows:
-        return np.zeros((0, 5 + n_alpha)), stats
-    return np.array(rows, dtype=float), stats
+    code_by_char: dict[str, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    alphabet_codes = np.array([code_by_char[c] for c in alphabet], dtype=np.int64)
+    max_code = int(filtered_encoded.max()) if filtered_encoded.size else 0
+    return _site_features_numba(
+        filtered_encoded,
+        rate_values,
+        alphabet_codes,
+        len(alphabet),
+        max_code,
+    )
 
 
 def weighted_standardize(features: np.ndarray, weights: np.ndarray) -> np.ndarray:
@@ -348,7 +368,8 @@ def overlap_windows(
     """Slide cap_length windows with overlap_frac over positionally-sorted sites.
 
     Returns list of (site_indices_chunk, confidence_chunk) pairs.
-    Tiny trailing windows are merged into the last window.
+    The final window is anchored at the end, so a short tail is padded by
+    overlapping previous sites instead of creating a block longer than cap_length.
     """
     if not site_indices:
         return []
@@ -364,50 +385,44 @@ def overlap_windows(
     step = max(1, int(cap_length * (1.0 - overlap_frac)))
     windows: list[tuple[list[int], list[float]]] = []
     i = 0
-    while i < len(pos_sites):
-        s = pos_sites[i : i + cap_length]
-        c = pos_conf[i : i + cap_length]
-        if len(s) < cap_length // 4 and windows:
-            # Merge tiny last window; deduplicate keeping higher confidence
-            prev_s, prev_c = windows[-1]
-            site_to_conf: dict[int, float] = dict(zip(prev_s, prev_c))
-            for si, ci in zip(s, c):
-                site_to_conf[si] = max(site_to_conf.get(si, 0.0), ci)
-            merged = sorted(site_to_conf)
-            windows[-1] = (merged, [site_to_conf[x] for x in merged])
-            break
-        windows.append((s, c))
+    while i + cap_length < len(pos_sites):
+        windows.append((pos_sites[i : i + cap_length], pos_conf[i : i + cap_length]))
         i += step
+
+    last_start = max(0, len(pos_sites) - cap_length)
+    last = (pos_sites[last_start:], pos_conf[last_start:])
+    if not windows or windows[-1][0] != last[0]:
+        windows.append(last)
     return windows
 
 
-def build_block_partition(
-    matrix: np.ndarray,
+def build_block_partition_from_metrics(
     block_id: str,
     parent_regime_id: str,
     site_indices: list[int],
     site_probs: list[float],
-    global_rates: dict[int, float],
     global_to_local: dict[int, int],
-    alphabet: list[str],
+    rate_values: np.ndarray,
+    features: np.ndarray,
 ) -> BlockPartition:
-    local_idx = [global_to_local[ci] for ci in site_indices]
-    bm = matrix[:, local_idx]
-    n = bm.shape[1]
-    alpha_size = max(len(alphabet), 1)
-    gap_ratios = [float(sum(is_gap(c) for c in bm[:, j].tolist())) / float(bm.shape[0]) for j in range(n)]
-    inf_flags = [1.0 if is_parsimony_informative(bm[:, j]) else 0.0 for j in range(n)]
-    entropies = [site_entropy(bm[:, j], alpha_size) for j in range(n)]
+    local_idx = np.array([global_to_local[ci] for ci in site_indices], dtype=np.int64)
+    mean_rate, mean_entropy, gap_ratio, informative_ratio, effective_length = _block_stats_numba(
+        local_idx,
+        rate_values,
+        features[:, 1],
+        features[:, 4],
+        features[:, 3],
+    )
     return BlockPartition(
         block_id=block_id,
         parent_regime_id=parent_regime_id,
         site_indices=site_indices,
         site_probs=site_probs,
-        mean_rate=float(np.mean([global_rates.get(ci, 0.0) for ci in site_indices])) if site_indices else 0.0,
-        mean_entropy=float(np.mean(entropies)) if entropies else 0.0,
-        gap_ratio=float(np.mean(gap_ratios)) if gap_ratios else 0.0,
-        informative_ratio=float(np.mean(inf_flags)) if inf_flags else 0.0,
-        effective_length=float(sum(1.0 - gr for gr in gap_ratios)),
+        mean_rate=float(mean_rate),
+        mean_entropy=float(mean_entropy),
+        gap_ratio=float(gap_ratio),
+        informative_ratio=float(informative_ratio),
+        effective_length=float(effective_length),
     )
 
 
@@ -418,6 +433,10 @@ def write_fasta(path: Path, ids: list[str], matrix: np.ndarray) -> None:
 
 
 def prepare_alignment(args: argparse.Namespace) -> None:
+    cpu_threads = getattr(args, "cpu_threads", None)
+    if cpu_threads is not None:
+        set_num_threads(max(1, int(cpu_threads)))
+
     input_path = Path(args.alignment)
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -426,15 +445,22 @@ def prepare_alignment(args: argparse.Namespace) -> None:
     seqtype = infer_seqtype(seqs, args.seqtype)
     alphabet = seq_alphabet(seqtype)
     matrix = to_matrix(seqs)
+    encoded_matrix, code_by_char = encode_alignment(seqs, alphabet)
 
-    filtered, kept_columns, variant_columns, invariant_columns, _ = preprocess_columns(
-        matrix, gap_threshold=args.gap_threshold
+    filtered, filtered_encoded, kept_columns, variant_columns, invariant_columns, _ = preprocess_columns_encoded(
+        matrix, encoded_matrix, gap_threshold=args.gap_threshold
     )
     global_to_local = {ci: li for li, ci in enumerate(kept_columns)}
-    rates = fast_tiger_rates(
-        matrix,
+    rates, rate_values = fast_tiger_rates_encoded(
+        filtered_encoded,
         kept_columns,
         count_gap_gap=getattr(args, "count_gap_gap", False),
+    )
+    features, site_info_values = site_feature_matrix_encoded(
+        filtered_encoded,
+        rate_values,
+        alphabet,
+        code_by_char,
     )
 
     _vram_gb = getattr(args, "vram_gb", None) or 16.0
@@ -458,29 +484,22 @@ def prepare_alignment(args: argparse.Namespace) -> None:
         "invariant_sites": len(invariant_columns),
         "pf2_cap_length": cap_length,
         "overlap_frac": args.overlap_frac,
+        "cpu_threads": int(cpu_threads) if cpu_threads is not None else None,
     }
 
     all_blocks: list[BlockPartition] = []
 
-    # ------------------------------------------------------------------
-    # Per-site informativeness weight: (1 - gap_ratio) * is_parsimony_informative
-    # Used later to compute soft_block_weight.
-    # ------------------------------------------------------------------
-    site_info_map: dict[int, float] = {}
-    for ci in kept_columns:
-        li = global_to_local[ci]
-        col = filtered[:, li]
-        gr = float(sum(is_gap(c) for c in col.tolist())) / float(len(col))
-        site_info_map[ci] = (1.0 - gr) * (1.0 if is_parsimony_informative(col) else 0.0)
+    # Per-site informativeness weight: (1 - gap_ratio) * is_parsimony_informative.
+    site_info_map = {ci: float(site_info_values[li]) for li, ci in enumerate(kept_columns)}
 
     # ------------------------------------------------------------------
     # Fast path: entire filtered alignment fits in cap → single block
     # ------------------------------------------------------------------
     if filtered_len <= cap_length:
-        block = build_block_partition(
-            filtered, "direct_b000", "direct",
+        block = build_block_partition_from_metrics(
+            "direct_b000", "direct",
             kept_columns, [1.0] * len(kept_columns),
-            rates, global_to_local, alphabet,
+            global_to_local, rate_values, features,
         )
         all_blocks = [block]
         pipeline_meta["routing"] = "direct"
@@ -491,9 +510,6 @@ def prepare_alignment(args: argparse.Namespace) -> None:
     # Partition path: GMM soft membership + overlap windows
     # ------------------------------------------------------------------
     else:
-        features, _stats = site_feature_matrix(
-            filtered, rates, global_to_local, kept_columns, alphabet
-        )
         weights = build_feature_weights(alphabet)
         X = weighted_standardize(features, weights)
 
@@ -570,12 +586,11 @@ def prepare_alignment(args: argparse.Namespace) -> None:
                 continue
             regime_id = f"regime_{k:02d}"
             for w_sites, w_probs in overlap_windows(r_sites, r_probs, cap_length, args.overlap_frac):
-                block = build_block_partition(
-                    filtered,
+                block = build_block_partition_from_metrics(
                     f"{regime_id}_b{block_counter:04d}",
                     regime_id,
                     w_sites, w_probs,
-                    rates, global_to_local, alphabet,
+                    global_to_local, rate_values, features,
                 )
                 all_blocks.append(block)
                 block_counter += 1

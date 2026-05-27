@@ -30,8 +30,8 @@ python third_party/tools/partition_merge/run_supertree_merge_all.py \
 ## Benchmark
 
 ```bash
-ALIGN_DIR=data/cherry_over2gb/alignments
-TRUE_TREE_DIR=data/cherry_over2gb/true_trees
+ALIGN_DIR=data/cherry_test_data/alignments_over2gb
+TRUE_TREE_DIR=data/cherry_test_data/trees
 RUN_ROOT=runs/benchmarks/cherry_over2gb
 
 python third_party/tools/evaluation/run_tree_dir_benchmarks.py \

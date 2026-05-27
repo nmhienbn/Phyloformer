@@ -50,3 +50,33 @@ CUDA_VISIBLE_DEVICES=4,5,6,7 CUDA_MPS_ACTIVE_THREAD_PERCENTAGE=50 taskset -c 96-
   --epochs 10 \
   --early-stop-patience -1
 ```
+
+# 4. Infer PF2
+Đầy đủ: [/docs/infer_paper_phyloformer_2.md](/docs/infer_aper_phyloformer_2.md)
+
+```bash
+CKPT="models/trained/pf2_pandit.ckpt"
+MODEL_NAME="pf2_pandit"
+PLOT_MODEL_NAME="PF2_PANDIT"
+BIN="./bin/bin_linux"
+DATASET="data/benchmarks/pandit_aa_zenodo"
+OUT="runs/$MODEL_NAME/eval_${MODEL_NAME}"
+
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+CUDA_VISIBLE_DEVICES=7 conda run --no-capture-output -n pf2 \
+  python third_party/phyloformer2/infer.py \
+    --mode max-sample \
+    "$DATASET/alignments" \
+    "$CKPT" \
+    "$OUT/trees"
+
+python third_party/tools/evaluation/run_phylocompare.py \
+  --bin-dir "$BIN" \
+  --pred-trees "$OUT/trees" \
+  --true-trees "$DATASET/trees" \
+  --cmp-out "$OUT/cmp_pf2" \
+  --method-name "$PLOT_MODEL_NAME" \
+  --label "$MODEL_NAME"
+```

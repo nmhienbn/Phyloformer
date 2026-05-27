@@ -16,6 +16,7 @@ import numpy as np
 from Bio import AlignIO
 
 from third_party.tools.vram.pf2_vram import derive_pf2_cap_length
+from fast_tiger import encode_alignment, fast_tiger_rates_encoded
 
 GAP_CHARS = {"-", ".", "?"}
 DNA_CHARS = set("ACGTUN")
@@ -94,6 +95,10 @@ def infer_seqtype(seqs: list[str], seqtype: str) -> str:
     return "DNA" if observed and observed.issubset(DNA_CHARS) else "AA"
 
 
+def seq_alphabet(seqtype: str) -> list[str]:
+    return sorted("ACGT") if seqtype == "DNA" else sorted("ACDEFGHIKLMNPQRSTVWY")
+
+
 def to_matrix(seqs: list[str]) -> np.ndarray:
     lengths = {len(s) for s in seqs}
     if len(lengths) != 1:
@@ -131,57 +136,6 @@ def preprocess_columns(
     filtered = matrix[:, kept] if kept else matrix[:, :0]
     return filtered, kept, variant, invariant, gap_ratios
 
-def compute_pair_similarity(
-    matrix: np.ndarray, count_gap_gap: bool = False
-) -> tuple[np.ndarray, float]:
-    nseq = matrix.shape[0]
-    sim = np.zeros((nseq, nseq), dtype=float)
-    total = 0.0
-    for i in range(nseq):
-        for j in range(i + 1, nseq):
-            same = 0
-            for a, b in zip(matrix[i], matrix[j]):
-                if a != b:
-                    continue
-                if is_gap(a) or is_gap(b):
-                    if count_gap_gap and is_gap(a) and is_gap(b):
-                        same += 1
-                    continue
-                same += 1
-            sim[i, j] = sim[j, i] = same
-            total += same
-    return sim, total
-
-
-def fast_tiger_rates(
-    matrix: np.ndarray,
-    kept_columns: list[int],
-    count_gap_gap: bool = False,
-) -> dict[int, float]:
-    if not kept_columns:
-        return {}
-    filtered = matrix[:, kept_columns]
-    sim, total = compute_pair_similarity(filtered, count_gap_gap=count_gap_gap)
-    if total <= 0:
-        return {ci: 0.0 for ci in kept_columns}
-    rates: dict[int, float] = {}
-    for local_idx, ci in enumerate(kept_columns):
-        col = filtered[:, local_idx]
-        same_w = sum(
-            sim[i, j]
-            for i in range(filtered.shape[0])
-            for j in range(i + 1, filtered.shape[0])
-            if (
-                col[i] == col[j]
-                and (
-                    (not is_gap(col[i]) and not is_gap(col[j]))
-                    or (count_gap_gap and is_gap(col[i]) and is_gap(col[j]))
-                )
-            )
-        )
-        rates[ci] = 1.0 - (same_w / total)
-    return rates
-
 def sliding_windows(
     site_indices: list[int],
     cap_length: int,
@@ -189,7 +143,8 @@ def sliding_windows(
 ) -> list[list[int]]:
     """Slide cap_length windows over site_indices (already in desired order).
 
-    Tiny trailing windows (< cap_length // 4) are merged into the last window.
+    The final window is anchored at the end, so a short tail is padded by
+    overlapping previous sites instead of creating a block longer than cap_length.
     """
     if not site_indices:
         return []
@@ -199,15 +154,14 @@ def sliding_windows(
     step = max(1, int(cap_length * (1.0 - overlap_frac)))
     windows: list[list[int]] = []
     i = 0
-    while i < len(site_indices):
-        chunk = site_indices[i : i + cap_length]
-        if len(chunk) < cap_length // 4 and windows:
-            # Merge tiny last chunk; preserve unique sites
-            merged = sorted(set(windows[-1]) | set(chunk))
-            windows[-1] = merged
-            break
-        windows.append(chunk)
+    while i + cap_length < len(site_indices):
+        windows.append(site_indices[i : i + cap_length])
         i += step
+
+    last_start = max(0, len(site_indices) - cap_length)
+    last = site_indices[last_start:]
+    if not windows or windows[-1] != last:
+        windows.append(last)
     return windows
 
 def write_fasta(path: Path, ids: list[str], matrix: np.ndarray) -> None:
@@ -223,13 +177,16 @@ def prepare_alignment(args: argparse.Namespace) -> None:
     ids, seqs = load_alignment(input_path, args.input_format)
     seqtype = infer_seqtype(seqs, args.seqtype)
     matrix = to_matrix(seqs)
+    encoded_matrix, _ = encode_alignment(seqs, seq_alphabet(seqtype))
 
     filtered, kept_columns, variant_columns, invariant_columns, _ = preprocess_columns(
         matrix, gap_threshold=args.gap_threshold
     )
     global_to_local = {ci: li for li, ci in enumerate(kept_columns)}
-    rates = fast_tiger_rates(
-        matrix,
+    kept_array = np.asarray(kept_columns, dtype=np.int64)
+    filtered_encoded = encoded_matrix[:, kept_array] if len(kept_array) else encoded_matrix[:, :0]
+    rates, _ = fast_tiger_rates_encoded(
+        filtered_encoded,
         kept_columns,
         count_gap_gap=getattr(args, "count_gap_gap", False),
     )

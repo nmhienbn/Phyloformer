@@ -34,10 +34,22 @@ Tool wrappers gọi binary/phần mềm ngoài nằm ở [`../../../third_party/
 Mỗi benchmark cần một thư mục alignment FASTA và một thư mục true tree tương ứng. Ví dụ:
 
 ```bash
-ALIGN_DIR=data/cherry_over2gb/alignments
-TRUE_TREE_DIR=data/cherry_over2gb/true_trees
-RUN_ROOT=runs/benchmarks/cherry_over2gb
+ALIGN_DIR=data/sample/alignments
+TRUE_TREE_DIR=data/sample/trees
+RUN_ROOT=runs/benchmarks/sample
 ```
+
+Các bộ dữ liệu đang dùng:
+
+| Bộ | `ALIGN_DIR` | `TRUE_TREE_DIR` | `RUN_ROOT` | Ghi chú |
+|---|---|---|---|---|
+| CHERRY over-2GB | `data/cherry_test_data/alignments_over2gb` | `data/cherry_test_data/trees` | `runs/benchmarks/cherry_over2gb` | 1500 alignment, `alignments_over2gb` là symlink tới full CHERRY |
+| PANDIT over-1GB | `data/benchmarks/pandit_aa_zenodo/alignments_over1gb` | `data/benchmarks/pandit_aa_zenodo/trees` | `runs/benchmarks/pandit_over1gb` | 340 alignment, `alignments_over1gb` là symlink tới full PANDIT |
+| BigAln 30k | `data/bigaln_benchmark/30k` | `data/bigaln_benchmark/30k/trees` | `runs/benchmarks/bigaln_16gb/30k` | alignment nằm ở `rep_*/big.fa`; dùng thêm `--include-glob "*/big.fa"` |
+| BigAln 60k | `data/bigaln_benchmark/60k` | `data/bigaln_benchmark/60k/trees` | `runs/benchmarks/bigaln_16gb/60k` | alignment nằm ở `rep_*/big.fa`; dùng thêm `--include-glob "*/big.fa"` |
+| BigAln 100k | `data/bigaln_benchmark/100k` | `data/bigaln_benchmark/100k/trees` | `runs/benchmarks/bigaln_16gb/100k` | alignment nằm ở `rep_*/big.fa`; dùng thêm `--include-glob "*/big.fa"` |
+
+Lưu ý: không có thư mục `data/cherry_over2gb`. Với CHERRY/PANDIT over-size, các alignment là symlink nên kiểm tra số lượng bằng `find ... \( -type f -o -type l \)`, không dùng mỗi `-type f`.
 
 Với dữ liệu mô phỏng big alignment, sinh từ tập cây đầu vào:
 
@@ -64,7 +76,8 @@ python experiments/04_pf2_partition_merge_refit/src/partition/run_window_pf2_tes
   --sort-by position \
   --checkpoint models/phyloformer2/pf2.tch \
   --gpu 0 \
-  --cpu-threads 8 \
+  --cpu-threads 20 \
+  --vram-gb 80 \
   --overwrite
 ```
 
@@ -77,7 +90,8 @@ python experiments/04_pf2_partition_merge_refit/src/partition/run_window_pf2_tes
   --sort-by rate \
   --checkpoint models/phyloformer2/pf2.tch \
   --gpu 0 \
-  --cpu-threads 8 \
+  --cpu-threads 20 \
+  --vram-gb 80 \
   --overwrite
 ```
 
@@ -88,8 +102,9 @@ python experiments/04_pf2_partition_merge_refit/src/partition/run_softbioblock_p
   "$ALIGN_DIR" \
   "$RUN_ROOT/partition_softbioblock" \
   --checkpoint models/phyloformer2/pf2.tch \
-  --gpu 0 \
-  --cpu-threads 8 \
+  --gpu 7 \
+  --cpu-threads 20 \
+  --vram-gb 80 \
   --overwrite
 ```
 

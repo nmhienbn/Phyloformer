@@ -53,13 +53,27 @@ def infer_blocks(case_root: Path, model, device) -> None:
 
 def run_testset(args: argparse.Namespace, method_name: str, prepare_case: PrepareCase) -> None:
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", str(args.gpu))
-    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    for name in (
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "NUMBA_NUM_THREADS",
+    ):
         os.environ[name] = str(args.cpu_threads)
 
     output_root = Path(args.output_root)
     if output_root.exists() and args.overwrite:
         shutil.rmtree(output_root)
     (output_root / "cases").mkdir(parents=True, exist_ok=True)
+
+    alignments = sorted(Path(args.alignments).glob(args.include_glob))
+    if not alignments:
+        raise ValueError(
+            f"No alignments matched include_glob={args.include_glob!r} under {args.alignments!r}. "
+            "For BigAln replicate directories, use ALIGN_DIR=data/bigaln_benchmark/<size> "
+            'and --include-glob "*/big.fa".'
+        )
 
     import torch
     from infer import load_model
@@ -69,7 +83,6 @@ def run_testset(args: argparse.Namespace, method_name: str, prepare_case: Prepar
     model.eval()
 
     rows = []
-    alignments = sorted(Path(args.alignments).glob(args.include_glob))
     stem_counts = Counter(path.stem for path in alignments)
     for alignment in tqdm(alignments, desc="cases", unit="aln"):
         case_id = alignment.parent.name if stem_counts[alignment.stem] > 1 else alignment.stem

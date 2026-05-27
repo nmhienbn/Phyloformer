@@ -68,7 +68,77 @@ PF2_CHERRY="models/phyloformer2/pf2_cherry.tch"
 PF2_PASTEK="models/phyloformer2/pf2_pastek.tch"
 ```
 
-## 3. Infer với checkpoint fine-tuned
+## 3. Infer một test set
+
+`third_party/phyloformer2/infer.py` yêu cầu output dir chưa tồn tại, nên luôn `rm -rf` trước khi chạy.
+
+```bash
+DATASET="data/final_test_set"
+NAME="$(basename "$DATASET")"
+OUT="runs/$MODEL_NAME/eval_${NAME}"
+
+rm -rf "$OUT"
+mkdir -p "$OUT"
+
+CUDA_VISIBLE_DEVICES=7 conda run --no-capture-output -n pf2 \
+  python third_party/phyloformer2/infer.py \
+    --mode max-sample \
+    "$DATASET/alignments" \
+    "$CKPT" \
+    "$OUT/trees"
+```
+
+So sánh với true trees:
+
+```bash
+python third_party/tools/evaluation/run_phylocompare.py \
+  --bin-dir "$BIN" \
+  --pred-trees "$OUT/trees" \
+  --true-trees "$DATASET/trees" \
+  --cmp-out "$OUT/cmp_pf2" \
+  --method-name "$PLOT_MODEL_NAME" \
+  --label "$NAME"
+```
+
+## 4. Infer toàn bộ paper test sets
+
+Chạy PF2 base trên cả 4 bộ:
+
+```bash
+TOTAL_START=$(date +%s)
+
+for D in data/final_test_set data/LGGC+gaps data/cherry_test_data data/pastek_test_data; do
+  NAME="$(basename "$D")"
+  OUT="runs/$MODEL_NAME/eval_${NAME}"
+  SET_START=$(date +%s)
+
+  rm -rf "$OUT"
+  mkdir -p "$OUT"
+
+  CUDA_VISIBLE_DEVICES=0 conda run --no-capture-output -n pf2 \
+    python third_party/phyloformer2/infer.py \
+      --mode max-sample \
+      "$D/alignments" \
+      "$CKPT" \
+      "$OUT/trees"
+
+  python third_party/tools/evaluation/run_phylocompare.py \
+    --bin-dir "$BIN" \
+    --pred-trees "$OUT/trees" \
+    --true-trees "$D/trees" \
+    --cmp-out "$OUT/cmp_pf2" \
+    --method-name "$PLOT_MODEL_NAME" \
+    --label "$NAME"
+
+  SET_END=$(date +%s)
+  echo "[TIME] [$NAME] PF2 infer+compare: $((SET_END - SET_START))s"
+done
+
+TOTAL_END=$(date +%s)
+echo "[TIME] [PF2] ALL DATASETS TOTAL: $((TOTAL_END - TOTAL_START))s"
+```
+
+## 5. Infer với checkpoint fine-tuned
 
 Nếu muốn dùng checkpoint tương ứng cho từng domain:
 
@@ -116,7 +186,7 @@ TOTAL_END=$(date +%s)
 echo "[TIME] [PF2 domain ckpt] ALL DATASETS TOTAL: $((TOTAL_END - TOTAL_START))s"
 ```
 
-## 4. Plot
+## 6. Plot
 
 Plot kết quả của một model trên 4 test sets:
 
@@ -146,7 +216,7 @@ python third_party/tools/plots/plot_topology_boxplots.py \
   --outdir "figures/$MODEL_NAME/topology_boxplots"
 ```
 
-## 5. Chạy qua wrapper benchmark
+## 7. Chạy qua wrapper benchmark
 
 Infer, compare, runtime summary và optional plot:
 
@@ -161,8 +231,11 @@ CUDA_VISIBLE_DEVICES=7 python third_party/tools/inference/run_pf2_pure_benchmark
   --overwrite
 ```
 
-## 6. Ghi chú
+Wrapper này gọi `third_party/phyloformer2/infer.py --mode max-sample`, nên kết quả topology tương đương pipeline thủ công ở trên.
+
+## 8. Ghi chú
 
 - `--mode max-sample` xuất trực tiếp cây `.nwk`; đây là pipeline PF2 chính.
 - `--mode samples` xuất nhiều cây sample cho mỗi MSA, dùng khi cần phân tích bất định topology.
 - `--mode dm` xuất distance matrix `.phy`; không dùng cho benchmark PF2 chính vì sẽ kéo thêm FastME.
+- Nếu gặp OOM, giảm subset bằng số taxa/alignment length hoặc dùng pipeline partition trong `experiments/04_pf2_partition_merge_refit`.
